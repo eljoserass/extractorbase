@@ -323,3 +323,30 @@ The transport tests use OpenAI's existing `httpx2` dependency, so a base checkou
 does not need an unrelated optional package. Apple Silicon dependency selection
 passes a macOS 14 target dry run; actual Metal/model generation is not tested
 on this Linux machine. The installation guide is documented in the next increment.
+
+## Mac MLX LM — clone-to-run guide (6 October 2026)
+
+The implementation increment was committed and pushed as `ee16ec4`.
+Updated README, installation, CLI and LLM guides with a short Apple Silicon
+setup: clone, `uv sync --locked --extra mlx`, copy private exports and XML into
+ignored `data/`, start or reuse the local server, fit a ten-demonstration prompt,
+then reload it to predict held-out notes. Commands use the supplied existing
+model through a portable home-directory path and port 8080; model selection
+remains configurable. The guide explains which saved settings are restored,
+how to supply the private schema, and how to copy an existing BERT artifact
+for inference without further training. Extended the memoir at the end of README.
+
+The delegated installation check used a fresh copy with no `data/`, `schemas/`
+or `runs/`. Locked dependency setup, CLI help and `uv pip check` passed.
+The base suite passed 38 tests with the optional BERT module skipped, and a
+synthetic dummy fit → dump → reload → held-out predict succeeded with a generated
+schema. A macOS 14 / arm64 dependency dry run selected mlx-lm 0.32.0, mlx 0.32.3
+and mlx-metal 0.32.3 without PyTorch. Root verified all 40 tests with BERT,
+including the mocked MLX CLI lifecycle. Real MLX/Metal generation needs the Mac.
+
+Documentation checks passed for 37 shell examples (`bash -n`), Python snippets,
+code fences, relative links and the documented `--llm-backend` help flag.
+
+Private dataset analysis and preparation are stored only in ignored local
+directories. Neither public increment contains private exports, task schema or
+model artifacts. The user's existing CLI whitespace remains unstaged.

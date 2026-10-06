@@ -46,6 +46,20 @@ things to consider for next:
 Start with the [installation guide](docs/install.md), then use the
 [CLI guide](docs/cli.md) for stages, sample offsets, every flag, approval,
 saved files and troubleshooting.
+For an Apple Silicon Mac, the
+[MLX quick start](docs/install.md#quick-start-on-an-apple-silicon-mac-with-mlx-lm)
+covers cloning, one-command dependency setup, copying your private files and
+running your choice of local model:
+
+```bash
+uv sync --locked --extra mlx
+uv run --extra mlx mlx_lm.server \
+  --model "$HOME/Models/Qwen3.8-27B-bf16" --host 127.0.0.1 --port 8080
+```
+
+When fitting the LLM prompt, select `--llm-backend mlx`, pass
+`--endpoint http://127.0.0.1:8080/v1`, and use that same model ID or local path
+with `--model`. Fitting saves a few-shot prompt and leaves the model weights unchanged.
 The [method guides](docs/methods/README.md) explain the shared contract and how
 [BERT](docs/methods/bert.md), [LLM](docs/methods/llm.md) and
 [dummy](docs/methods/dummy.md) work, including the rationale of the current code.
@@ -68,7 +82,8 @@ are blank, stdout may have been redirected by the shell.
 interactive terminal, `exec 1>/dev/tty` restores stdout to that terminal.
 
 `.python-version` selects Python 3.12; `uv.lock` pins the resolved dependencies.
-PyTorch uses its CPU wheel index. The first BERT fit downloads the multilingual
+PyTorch uses its CPU wheel index on Linux/Windows and PyPI on macOS.
+The first BERT fit downloads the multilingual
 DistilBERT checkpoint; subsequent predictions load the saved weights locally.
 For dummy/LLM use without PyTorch, `uv sync` is sufficient. LM Studio runs separately.
 `data/`, `schemas/`, `.venv/`, model caches and `runs/` are ignored by Git.
@@ -145,8 +160,9 @@ fit; fitting refuses to overwrite a nonempty directory.
 | `--reviewer-id N` | Repeat for clinician IDs; defaults to 3 and 4. |
 | `--epochs N`, `--checkpoint NAME`, `--seed N` | BERT settings; defaults to 3 epochs, multilingual DistilBERT, seed 42. |
 | `--freeze-encoder`, `--full-finetune` | Default trains the classifier head; full fine-tuning also updates encoder weights. |
-| `--endpoint URL`, `--model NAME` | LM Studio settings saved in the artifact. |
-| `--thinking`, `--no-thinking` | Default disables thinking per request; enable to use the server's reasoning setting. |
+| `--endpoint URL`, `--model NAME` | Local server address and model ID/path saved in the artifact. |
+| `--llm-backend lmstudio\|mlx` | Default `lmstudio` uses native JSON schema; `mlx` puts the schema in the prompt. Saved in the artifact. |
+| `--thinking`, `--no-thinking` | LM Studio: preserve the server setting or request thinking off. MLX: request thinking on/off through the chat template. |
 | `--yes` | Explicit approval for scripted runs. |
 
 Selection is sequential and reproducible in file order. In `run`, evaluation
@@ -404,6 +420,8 @@ and `DEVELOPMENT.md`:
 | CLI help follow-up | Added `-h`, tested both help flags, and documented shell stdout diagnosis. |
 | `b710eeb` | Added separate installation and CLI guides, offset examples and hidden approval-prompt troubleshooting. |
 | Method documentation follow-up | Added shared contract and BERT/LLM/dummy guides covering background, implementation choices and saved state. |
+| `ee16ec4` | Added MLX prompted JSON output, saved backend selection, Apple Silicon dependencies and HTTP/CLI regression coverage. |
+| Mac installation follow-up | Added the clone-to-run guide using the existing local model, private file placement and reproducible setup checks. |
 
 The first follow-up concerned apparently silent help and run commands. Both
 rendered correctly in subprocess and PTY checks. A nested interactive bash had
@@ -442,3 +460,23 @@ The cleaned branch was verified without the schema, and all 33 tests passed in
 a checkout with no private XML. GitHub still served the old raw-file copy by its
 previous commit hash after the rewrite; a local Support-request draft contains
 the details needed for GitHub to clear those cached objects.
+
+The Mac follow-up added `uv sync --locked --extra mlx` and a two-terminal guide
+for an existing local MLX LM model. The model path is configurable; the examples
+use `~/Models/Qwen3.8-27B-bf16` and port 8080. LLM fitting still builds and saves
+demonstrations without updating model weights. The selected server backend is
+saved with the endpoint and model so prediction restores the same recipe.
+
+MLX LM ignores OpenAI's native JSON schema option, so its adapter includes the
+schema in the prompt and validates the returned JSON through Pydantic AI.
+LM Studio retains its native schema path. The thinking control also follows each
+server's API. The Mac dependencies are optional, and macOS PyTorch uses PyPI.
+
+A fresh checkout without private files passed dependency installation, help,
+dependency checks, 38 tests with the BERT module skipped, and a synthetic dummy
+fit/reload/predict. With the BERT extra, all **40 tests pass**. New mocked HTTP
+tests cover both backends, JSON repair, saved settings and the complete LLM CLI
+lifecycle. Apple Silicon wheel selection passes a macOS target dry run. Actual
+Metal generation remains to be verified on the Mac with its existing model.
+The changes were pushed in separate implementation and documentation increments;
+private inputs, schemas and artifacts remain local.

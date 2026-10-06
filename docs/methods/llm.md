@@ -1,12 +1,12 @@
 # LLM method: demonstrations, structured output and quote grounding
 
-The LLM method asks Gemma to extract entities and relations using a fixed prompt
+The LLM method asks a local language model to extract entities and relations using a fixed prompt
 with labeled examples. Fitting builds that prompt; prediction calls the local
-LM Studio server and converts model responses into Label Studio results.
+LM Studio or MLX LM server and converts model responses into Label Studio results.
 The implementation is [methods/llm.py](../../methods/llm.py).
 
 See the [shared method contract](README.md) for the evaluator boundary and
-[installation](../install.md#5-optional-configure-lm-studio-for-gemma) for server
+[installation](../install.md) for LM Studio and Apple Silicon MLX LM server
 setup.
 
 ## Background: learning from examples in the prompt
@@ -23,9 +23,9 @@ studies this approach with GPT-3; it is background for the prompting pattern,
 rather than an evaluation of Gemma or this dataset.
 
 `fit` therefore means preparing a reusable extraction recipe. It does not call
-Gemma, backpropagate, or optimize the prompt against a score. The CLI later calls
+the model, backpropagate, or optimize the prompt against a score. The CLI later calls
 `predict` for the training preview, which is why the overall fit stage still needs
-the server. The saved artifact contains no Gemma weights; LM Studio must have the
+the server. The saved artifact contains no model weights; the local server must have the
 configured model loaded for inference.
 
 The initial model ID is `google/gemma-4-e2b`, with endpoint
@@ -41,6 +41,15 @@ sends the output schema through the model API's structured-output mechanism and
 parses the response into Pydantic models. The library also handles an output
 validation retry. These features are described in its
 [structured-output documentation](https://pydantic.dev/docs/ai/core-concepts/output/).
+
+With `--llm-backend mlx`, the adapter uses `PromptedOutput(Extraction)` instead.
+MLX LM's chat server does not enforce `response_format`, so the JSON schema is
+included in the prompt, and Pydantic AI validates the returned JSON. This uses the
+same extraction types and retry while allowing the server's simpler API.
+The model ID/path and endpoint remain configurable with `--model` and `--endpoint`.
+The backend is saved in `method.json`; older artifacts default to LM Studio.
+See the [MLX LM server source](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/server.py)
+and Pydantic AI's [prompted output documentation](https://ai.pydantic.dev/output/#prompted-output).
 
 This keeps schema serialization, parsing and retry handling out of the extraction
 code. There are no registered tools or prompt-search loop in this method. The
@@ -100,7 +109,7 @@ the CLI's common fitting flow requires a positive example count.
 
 ```mermaid
 flowchart TD
-    A[Saved prompt with demonstrations] --> C[Gemma through LM Studio]
+    A[Saved prompt with demonstrations] --> C[Local model through LM Studio or MLX LM]
     B[New document text] --> C
     D[Extraction JSON schema] --> C
     C --> E[Pydantic AI parses Extraction]
@@ -113,10 +122,11 @@ flowchart TD
     C -->|API or exhausted output failure| J[Empty result with extraction_error]
 ```
 
-`_agent` builds a typed agent from the loaded artifact. Its profile declares JSON
-schema support, uses the `max_tokens` field, and avoids multiple system messages
-for the local adapter. This assumes the chosen server/model supports native
-structured output; there is no fallback to a plain-text parser.
+`_agent` builds a typed agent from the loaded artifact. Both backends use
+`max_tokens` and a single initial system message. The LM Studio profile declares
+native JSON schema support; the MLX profile disables API JSON formatting and
+uses prompted output. Selecting the backend is explicit rather than an automatic
+fallback when a request fails.
 
 `predict` processes documents sequentially. It checks the saved prompt plus
 document against the character budget, then calls `agent.run_sync` with a user
@@ -215,8 +225,9 @@ the [stdout troubleshooting steps](../cli.md#troubleshooting).
 
 | Setting | Default | Purpose | CLI flag |
 | --- | --- | --- | --- |
-| `base_url` | `http://localhost:1234/v1` | Local LM Studio API | `--endpoint` |
+| `base_url` | `http://localhost:1234/v1` | Local server API | `--endpoint` |
 | `model` | `google/gemma-4-e2b` | Initial local model | `--model` |
+| `backend` | `lmstudio` | Native schema output or MLX prompted JSON | `--llm-backend` |
 | `thinking` | `False` | Request extraction without reasoning mode | `--thinking` / `--no-thinking` |
 | `temperature` | 0.0 | Reduce sampling variability | Python configuration only |
 | `max_output_tokens` | 4096 | Bound response length | Python configuration only |
@@ -224,13 +235,16 @@ the [stdout troubleshooting steps](../cli.md#troubleshooting).
 | `retries` | 1 | One output-validation repair | Python configuration only |
 | `timeout` | 120 seconds | Bound HTTP request waits | Python configuration only |
 
-When thinking is disabled, the adapter sets `openai_reasoning_effort="none"`.
-With `--thinking`, it leaves that field unset and uses the server's setting.
+For LM Studio, disabling thinking sets `openai_reasoning_effort="none"`;
+`--thinking` leaves that field unset and uses the server's setting.
+For MLX LM, the request sends `chat_template_kwargs.enable_thinking` as a boolean.
+This is the server's supported chat-template control; its effect depends on
+whether the selected model's template uses it.
 Temperature zero is a sampling choice, not a guarantee of identical outputs
 across server configurations or versions. A repair adds another request, so the
 HTTP timeout is not a total runtime budget for the batch.
 
-The client sends a fixed placeholder API key (`lm-studio`). There is no
+The client sends a fixed placeholder API key (`local`). There is no
 configurable authentication flag in this first local adapter.
 
 ## What is saved and restored
@@ -249,7 +263,7 @@ artifact/
 the saved `prompt.txt` directly; it does not rebuild it from `examples.json`.
 Keeping the final prompt makes the inference recipe inspectable and avoids
 silently rebuilding an old artifact with changed prompt-construction code.
-It does not pin LM Studio's model file or server version: those stay external.
+It does not pin the local server's model weights or version: those stay external.
 
 The CLI separately adds approval/provenance and training-preview files. Changing
 fit-time CLI model flags during `predict` does not override the saved settings.

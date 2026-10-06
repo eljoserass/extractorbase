@@ -2,7 +2,7 @@
 
 Run commands from the repository root. The CLI reads Label Studio JSON exports,
 fits or loads an extractor, prints predictions and scores, and saves results locally.
-For cloning, uv installation, dataset setup and LM Studio, see the
+For cloning, uv installation, dataset setup, LM Studio and MLX LM on Mac, see the
 [installation guide](install.md).
 
 ## Setup and help
@@ -14,6 +14,9 @@ uv sync --locked
 # Include BERT dependencies when using that method
 uv sync --locked --extra bert
 
+# Apple Silicon Mac with an MLX LM server in this environment
+uv sync --locked --extra mlx
+
 uv run python cli.py --help
 uv run python cli.py -h
 ```
@@ -22,6 +25,8 @@ In `uv run --extra bert python cli.py --method bert ...`, `--extra bert` makes
 PyTorch, Transformers and Accelerate available through uv. `python cli.py` runs
 the application; `--method bert` selects its BERT extractor. LLM and dummy commands
 can use `uv run python cli.py ...`.
+If you installed the MLX extra, keep `--extra mlx` on `uv run` so uv retains the
+server packages. These extras install libraries; they do not choose the extractor.
 
 The private XML is supplied locally, not through Git. Put it at
 `schemas/reumalago.xml` or select its local path with `--task-spec`; see
@@ -31,6 +36,10 @@ are ignored so exports and schema definitions stay local.
 For LLM inference, start LM Studio's server and load `google/gemma-4-e2b`.
 The default endpoint is `http://localhost:1234/v1`. BERT's first fit downloads the
 multilingual DistilBERT checkpoint; later predictions load the saved weights.
+For an MLX LM server, choose `--llm-backend mlx`, its `--endpoint` (typically
+`http://localhost:8080/v1`) and the model repository or local path with `--model`.
+The [Mac quick start](install.md#quick-start-on-an-apple-silicon-mac-with-mlx-lm)
+shows both terminal commands and copying the private files.
 
 ## Stages
 
@@ -281,12 +290,16 @@ uv run python cli.py --stage inspect --data data/grupo1.json \
 
 | Flag | Default | Use |
 | --- | --- | --- |
-| `--endpoint URL` | `http://localhost:1234/v1` | LM Studio's OpenAI-compatible endpoint. |
-| `--model NAME` | `google/gemma-4-e2b` | Model identifier served by LM Studio. |
-| `--thinking` / `--no-thinking` | Thinking disabled | Preserve the server's reasoning setting, or disable reasoning per request. |
+| `--endpoint URL` | `http://localhost:1234/v1` | Local server's OpenAI-compatible endpoint. |
+| `--model NAME` | `google/gemma-4-e2b` | Served model ID, or an MLX-compatible repository/local path. |
+| `--llm-backend lmstudio\|mlx` | `lmstudio` | Native JSON schema for LM Studio; prompted schema with validated JSON for MLX LM. |
+| `--thinking` / `--no-thinking` | Thinking disabled | LM Studio reasoning setting, or MLX model chat-template thinking control. |
 
 The saved artifact controls these settings when reloaded. Its LLM model must
 remain available in the configured server.
+LLM fitting saves the prompt and demonstrations without updating model weights.
+Passing different server flags during `predict` does not change the saved recipe;
+fit a new recipe when changing model, endpoint or backend.
 
 Typer also provides `--show-completion` and `--install-completion` for shell
 completion. These are separate from extractor stages.
