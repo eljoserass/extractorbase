@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
 
 import torch
 from pydantic import BaseModel
@@ -59,7 +60,7 @@ class BertArtifact:
 
 
 class BertManifest(BaseModel):
-    method: str = "bert"
+    method: Literal["bert"] = "bert"
     task_spec: TaskSpec
     config: BertConfig
     fit_notes: list[str]

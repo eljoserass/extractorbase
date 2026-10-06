@@ -2,14 +2,16 @@
 
 import json
 import logging
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import pydantic_ai
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, ModelRetry, NativeOutput, RunContext
+from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.profiles.openai import OpenAIModelProfile
@@ -82,7 +84,7 @@ class LLMArtifact:
 
 
 class LLMManifest(BaseModel):
-    method: str = "llm"
+    method: Literal["llm"] = "llm"
     task_spec: TaskSpec
     config: LLMConfig
 
@@ -100,20 +102,61 @@ def occurrences(text: str, quote: str) -> list[int]:
     return starts
 
 
-def to_results(extraction: Extraction, document: DocumentInput, spec: TaskSpec) -> list[ResultItem]:
+def validate_structure(extraction: Extraction, spec: TaskSpec) -> None:
+    ids = [entity.id for entity in extraction.entities]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Entity IDs must be unique.")
+    if any(entity.label not in spec.entity_labels for entity in extraction.entities):
+        raise ValueError("Entity labels must belong to the schema.")
+    for relation in extraction.relations:
+        if relation.from_id not in ids or relation.to_id not in ids:
+            raise ValueError("Relation endpoints must refer to extracted entity IDs.")
+        if set(relation.labels) - set(spec.relation_labels):
+            raise ValueError("Relation labels must belong to the schema.")
+
+
+@dataclass(frozen=True)
+class GroundedResults:
+    results: list[ResultItem]
+    warnings: list[str]
+
+
+def ground_quotes(
+    extraction: Extraction, document: DocumentInput, spec: TaskSpec
+) -> GroundedResults:
+    """Abstain on absent/ambiguous quotes; never invent character offsets."""
     results: list[ResultItem] = []
     ids: set[str] = set()
+    warnings: list[str] = []
+    id_counts = Counter(entity.id for entity in extraction.entities)
     for entity in extraction.entities:
-        if entity.id in ids or entity.label not in spec.entity_labels:
-            raise ValueError(
-                "Entity IDs must be unique and entity labels must belong to the schema."
+        if id_counts[entity.id] > 1 or entity.label not in spec.entity_labels:
+            warnings.append(
+                f"Omitted {entity.id} ({entity.label}): duplicate ID or unknown entity label."
             )
+            continue
         starts = occurrences(document.text, entity.text)
-        if entity.occurrence >= len(starts):
-            raise ValueError(
-                f"Entity {entity.id}: exact quote/occurrence is absent from the document."
+        occurrence = entity.occurrence
+        if not starts:
+            warnings.append(
+                f"Omitted {entity.id} ({entity.label}): quote {entity.text!r} is absent "
+                "from the document."
             )
-        start = starts[entity.occurrence]
+            continue
+        if occurrence >= len(starts):
+            if len(starts) == 1:
+                warnings.append(
+                    f"Corrected {entity.id}: unique quote {entity.text!r} uses occurrence 0, "
+                    f"not {occurrence}."
+                )
+                occurrence = 0
+            else:
+                warnings.append(
+                    f"Omitted {entity.id}: quote {entity.text!r} requires an occurrence "
+                    f"between 0 and {len(starts) - 1}, not {occurrence}."
+                )
+                continue
+        start = starts[occurrence]
         ids.add(entity.id)
         results.append(
             {
@@ -131,9 +174,16 @@ def to_results(extraction: Extraction, document: DocumentInput, spec: TaskSpec) 
         )
     for relation in extraction.relations:
         if relation.from_id not in ids or relation.to_id not in ids:
-            raise ValueError("Relation endpoints must refer to extracted entity IDs.")
+            warnings.append(
+                f"Omitted relation {relation.from_id}->{relation.to_id}: "
+                "endpoint is missing or was omitted."
+            )
+            continue
         if set(relation.labels) - set(spec.relation_labels):
-            raise ValueError("Relation labels must belong to the schema.")
+            warnings.append(
+                f"Omitted relation {relation.from_id}->{relation.to_id}: unknown relation label."
+            )
+            continue
         results.append(
             {
                 "type": "relation",
@@ -143,7 +193,16 @@ def to_results(extraction: Extraction, document: DocumentInput, spec: TaskSpec) 
                 "direction": "right",
             }
         )
-    return results
+    return GroundedResults(results, warnings)
+
+
+def to_results(extraction: Extraction, document: DocumentInput, spec: TaskSpec) -> list[ResultItem]:
+    """Strict conversion for callers that require every mention to resolve unchanged."""
+    validate_structure(extraction, spec)
+    grounded = ground_quotes(extraction, document, spec)
+    if grounded.warnings:
+        raise ValueError("\n".join(grounded.warnings))
+    return grounded.results
 
 
 def demonstration(example: TrainingExample) -> Demonstration:
@@ -196,7 +255,10 @@ class LLMMethod(Method[LLMArtifact]):
             "No inventes datos ni traduzcas o normalices las citas. Cada entidad necesita un id "
             "unico, una etiqueta, text copiado literalmente del documento, y occurrence: indice "
             "desde cero de esa cita exacta entre todas sus apariciones, contando de izquierda a "
-            "derecha (incluidas apariciones dentro de palabras). No calcules offsets. "
+            "derecha (incluidas apariciones dentro de palabras). Si aparece una vez, "
+            "occurrence=0. Respeta mayusculas, tildes, espacios y abreviaturas del documento: "
+            "no expandas 'med' a 'medico'. Omite cualquier entidad cuya cita literal no exista. "
+            "No calcules offsets. "
             "Las relaciones referencian los ids de las entidades extraidas. Usa listas vacias "
             "si no hay entidades o relaciones. Las entidades pueden solaparse.\n"
             f"Etiquetas de entidades: {json.dumps(task_spec.entity_labels)}\n"
@@ -255,7 +317,7 @@ class LLMMethod(Method[LLMArtifact]):
         )
         if not artifact.config.thinking:
             settings["openai_reasoning_effort"] = "none"
-        agent = Agent(
+        return Agent(
             model,
             output_type=NativeOutput(Extraction),
             deps_type=DocumentInput,
@@ -263,16 +325,6 @@ class LLMMethod(Method[LLMArtifact]):
             retries=artifact.config.retries,
             model_settings=settings,
         )
-
-        @agent.output_validator
-        def validate(ctx: RunContext[DocumentInput], extraction: Extraction) -> Extraction:
-            try:
-                to_results(extraction, ctx.deps, artifact.task_spec)
-            except ValueError as error:
-                raise ModelRetry(str(error)) from error
-            return extraction
-
-        return agent
 
     def predict(
         self,
@@ -291,18 +343,31 @@ class LLMMethod(Method[LLMArtifact]):
                     raise ValueError(
                         "Prompt plus document exceeds the configured character budget."
                     )
-                output = agent.run_sync(document.text, deps=document).output
-                results = to_results(output, document, artifact.task_spec)
-                prediction = prediction_for(document, results, artifact.config.model)
+                output = agent.run_sync(
+                    "DOCUMENTO A ANOTAR (solo este texto; los ejemplos son de referencia):\n"
+                    + document.text,
+                    deps=document,
+                ).output
+                grounded = ground_quotes(output, document, artifact.task_spec)
+                prediction = prediction_for(document, grounded.results, artifact.config.model)
+                if grounded.warnings:
+                    prediction["meta"] = {"extraction_warnings": [*grounded.warnings]}
             except (APIError, ModelHTTPError, UnexpectedModelBehavior, ValueError) as error:
                 # Keep every document in the denominator; the CLI exits nonzero after reporting.
+                cause: BaseException = error
+                while cause.__cause__ is not None:
+                    cause = cause.__cause__
+                detail = f"{error}: {cause}" if cause is not error else str(error)
                 prediction = prediction_for(document, [], artifact.config.model)
-                prediction["meta"] = {"extraction_error": str(error)}
+                prediction["meta"] = {"extraction_error": detail}
+                logging.getLogger(__name__).warning("Document %s failed: %s", document.id, detail)
             predictions.append(prediction)
             logging.getLogger(__name__).info(
                 "Document %s: %s result items%s",
                 document.id,
                 len(prediction["predictions"][0]["result"]),
-                " (failed; see saved error)" if prediction.get("meta") else "",
+                " (failed; see saved error)"
+                if prediction.get("meta", {}).get("extraction_error")
+                else "",
             )
         return predictions

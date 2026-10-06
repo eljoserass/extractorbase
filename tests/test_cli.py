@@ -1,6 +1,7 @@
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -8,6 +9,7 @@ from typer.testing import CliRunner
 from cli import app
 from data import DocumentInput, LabelStudioTaskPrediction, prediction_for
 from methods.dummy import DummyArtifact, DummyMethod
+from methods.llm import EntityMention, Extraction, LLMMethod
 from tests.conftest import entity
 
 
@@ -199,3 +201,47 @@ def test_failed_training_preview_cannot_be_approved_in_predict_stage(
     )
     assert result.exit_code == 1 and "failed training preview" in result.output
     assert not json.loads((artifact / "fit.json").read_text())["approved"]
+
+
+def test_grounding_warnings_are_shown_before_approval_and_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeAgent:
+        def run_sync(self, text: str, *, deps: DocumentInput) -> SimpleNamespace:
+            assert "DOCUMENTO A ANOTAR" in text and not hasattr(deps, "gold")
+            return SimpleNamespace(
+                output=Extraction(
+                    entities=[
+                        EntityMention(id="valid", label="D:AR", text="AR", occurrence=0),
+                        EntityMention(id="absent", label="D:AR", text="arthritis", occurrence=0),
+                    ],
+                    relations=[],
+                )
+            )
+
+    monkeypatch.setattr(LLMMethod, "_agent", lambda self, artifact: FakeAgent())
+    data = dataset(tmp_path / "data.json")
+    artifact = tmp_path / "artifact"
+    output = tmp_path / "output"
+    result = CliRunner().invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--method",
+            "llm",
+            "--stage",
+            "run",
+            "--dump",
+            str(artifact),
+            "--output",
+            str(output),
+        ],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.index("Omitted absent") < result.output.index("Approve this fitted")
+    predictions = json.loads((output / "predictions.json").read_text())
+    assert all(prediction["meta"]["extraction_warnings"] for prediction in predictions)
+    assert all(len(prediction["predictions"][0]["result"]) == 1 for prediction in predictions)
+    assert json.loads((output / "metrics.json").read_text())["failed_documents"] == 0

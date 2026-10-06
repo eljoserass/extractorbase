@@ -87,3 +87,35 @@ Gemma run produced valid results for task 1, but four training documents exhaust
 the single output-validation retry. The CLI retained all five documents, saved
 the failures, and refused approval as intended. Response diagnosis and completion
 of the Gemma smoke test remain for the next stage.
+
+Stage 3 was committed and pushed as `432c693` (`fix: preserve strict entity
+matches and document the local workflow`).
+
+## Stage 4 — grounded LLM output and visible diagnostics (6 October 2026)
+
+Live response capture showed the exact problem: Gemma expanded `EVA med` into
+the absent quote `EVA médico`, sometimes used one-based occurrence indices, and
+sometimes emitted relations with nonexistent endpoint IDs. More detailed repair
+feedback still failed to correct every mention. This was a method output-quality
+issue, not a need for evaluator feedback or access to held-out labels.
+
+The final adapter abstains on absent quotes, invalid indices for repeated quotes,
+unknown labels, duplicate entity IDs and invalid relations. A unique quote can be
+unambiguously corrected to occurrence zero. It preserves valid mentions, emits
+only literal character spans, and prints/saves every correction or omission as
+`meta.extraction_warnings` before user approval. Schema/JSON errors still receive
+one bounded repair retry; network/unrepaired errors retain empty predictions and
+block approval. Full gold and all document denominators remain unchanged.
+
+Strengthened the literal-copy prompt, separated the current document from the
+demonstration markers, and retained the underlying cause in saved inference
+errors. Validated loaded manifests with method-specific literal types, including
+the dummy artifact, replacing its untyped JSON unpacking. Prediction now checks
+labeled/unlabeled consistency and validates/reports gold issues before calling
+the method, while passing only stripped inputs into inference.
+
+Validation: 31 tests pass, including abstention on ungrounded/ambiguous mentions,
+invalid labels/IDs/relations, unique-quote correction, and a CLI test showing
+warnings before approval while saving valid predictions. Ruff and mypy pass.
+The final live Gemma run has completed the first four training previews without
+document errors; the remaining preview and held-out evaluation are in progress.

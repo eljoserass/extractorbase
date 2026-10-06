@@ -30,6 +30,16 @@ the v0.1 will look like:
     - the demostration will be done with a cli calling the main components, on the reumalago anotated dataset
     - for now only a python cli, no downloadable, no distinctino between user facing application or whatever
 
+things to consider for next:
+- its depending on labelstudio schema for annotations, and for outputs, either define a version that its not dependnent of it, and do the translations modules for it or find another standard. BigIO hugginface maybe
+- code is already ugly, use some strict coding style
+- the naming convention is not obviouly related with extractor, think if i will change it to extractor or leave it like this. problem is method is too general
+- cli has too many logic, should consider creating a runner and or factory for defining the pipeline expelicitly and not letting the frontend being the one assembling it
+- relation evaluation not implemented yet
+- cli has too many logic, should consider creating a runner and or factory and or orchestration  for defining the pipeline expelicitly and not letting the frontend being the one assembling it
+- relation evaluation not implemented yet
+- agent not implemented yets
+
 ## Running the first harness
 
 The working version is a local Python CLI. It reads Label Studio exports, fits an
@@ -205,11 +215,21 @@ BERT currently predicts entities only.
 
 Gemma uses Pydantic AI's native JSON-schema output. It returns exact entity quotes
 and a zero-based occurrence index; Python resolves these to character offsets.
-It validates labels and relation endpoints and allows one semantic repair retry.
+It parses a typed JSON response and allows one JSON/schema repair retry.
 Entity/relation response models are temporary inference adapters; exported
 predictions always use Label Studio results. Missing relation labels in training
 gold are retained by the loader but omitted from LLM demonstrations, rather than
 guessing their type. The fitted prompt contains all selected demonstrations.
+
+The grounding adapter keeps literal quotes. Absent quotes and invalid occurrence
+indices for repeated quotes are omitted, together with relations whose endpoints
+are missing or were omitted. Unknown labels and duplicate entity IDs are omitted
+with warnings too. If a quote appears exactly once, an incorrect occurrence index is
+unambiguously corrected to zero. All omissions/corrections are printed before
+approval and saved in `meta.extraction_warnings`; valid mentions remain available.
+It does not expand abbreviations, normalize quotes or consult evaluation gold.
+These are extraction-quality warnings. Network or unrepaired JSON/schema
+failures remain document errors and block approval.
 
 Thinking is disabled using `reasoning_effort="none"`, supported by LM Studio's
 [OpenAI-compatible API since 0.4.8](https://lmstudio.ai/changelog/lmstudio/lmstudio-v0.4.8).
@@ -291,10 +311,3 @@ uv run --extra bert mypy data.py evaluator.py cli.py methods
 Tests use synthetic annotations, fake LLM inference and a tiny locally constructed
 BERT checkpoint. They need neither an API key nor a remote model download.
 Implementation stages and validation are recorded in [DEVELOPMENT.md](DEVELOPMENT.md).
-
-things to consider for next:
-- its depending on labelstudio schema for annotations, and for outputs, either define a version that its not dependnent of it, and do the translations modules for it or find another standard. BigIO hugginface maybe
-- code is already ugly, use some strict coding style
-- the naming convention is not obviouly related with extractor, think if i will change it to extractor or leave it like this. problem is method is too general
-- cli has too many logic, should consider creating a runner and or factory for defining the pipeline expelicitly and not letting the frontend being the one assembling it
-- relation evaluation not implemented yet

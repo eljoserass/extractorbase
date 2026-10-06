@@ -1,9 +1,11 @@
 """An empty predictor for exercising the harness without a model or server."""
 
-import json
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel
 
 from data import DocumentInput, LabelStudioTaskPrediction, TaskSpec, TrainingExample, prediction_for
 from methods.base import Method, Scorer
@@ -11,6 +13,11 @@ from methods.base import Method, Scorer
 
 @dataclass(frozen=True)
 class DummyArtifact:
+    task_spec: TaskSpec
+
+
+class DummyManifest(BaseModel):
+    method: Literal["dummy"] = "dummy"
     task_spec: TaskSpec
 
 
@@ -28,14 +35,12 @@ class DummyMethod(Method[DummyArtifact]):
     def dump(self, artifact: DummyArtifact, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "method.json").write_text(
-            json.dumps({"method": "dummy", "task_spec": asdict(artifact.task_spec)}, indent=2)
+            DummyManifest(task_spec=artifact.task_spec).model_dump_json(indent=2)
         )
 
     def load(self, directory: Path) -> DummyArtifact:
-        raw = json.loads((directory / "method.json").read_text())["task_spec"]
-        raw["entity_labels"] = tuple(raw["entity_labels"])
-        raw["relation_labels"] = tuple(raw["relation_labels"])
-        return DummyArtifact(TaskSpec(**raw))
+        manifest = DummyManifest.model_validate_json((directory / "method.json").read_text())
+        return DummyArtifact(manifest.task_spec)
 
     def predict(
         self,

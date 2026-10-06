@@ -171,6 +171,11 @@ def print_results(
             str(error) if error else preview,
         )
     console.print(table)
+    for prediction in predictions:
+        warnings = prediction.get("meta", {}).get("extraction_warnings", [])
+        if isinstance(warnings, list):
+            for warning in warnings:
+                console.print(f"Task {prediction['id']}: {warning}", style="yellow")
     if report is not None:
         metrics = report.strict_micro
         console.print(
@@ -333,16 +338,17 @@ def main(
         selected = select_slice(tasks, evaluation_offset, evaluation_count)
         if any(text_hash(task.data.text) in fit_record.train_text_hashes for task in selected):
             raise ValueError("Prediction slice contains fitting documents; select held-out inputs.")
+        labeled = [task for task in selected if task.annotations]
+        if labeled and len(labeled) != len(selected):
+            raise ValueError("Prediction slice mixes labeled and unlabeled tasks; select one kind.")
+        warn_selected(labeled, spec, gold_policy, reviewers)
+        gold = [make_example(task, spec, gold_policy, reviewers) for task in labeled]
         inputs = [make_input(task) for task in selected]
         console.print(
             f"Predicting with reloaded {method} on IDs {[document.id for document in inputs]}."
         )
         predictions = runner.predict(artifact, inputs)
-        labeled = [task for task in selected if task.annotations]
-        gold = [make_example(task, spec, gold_policy, reviewers) for task in labeled]
         metrics = score(predictions, gold) if len(gold) == len(selected) else None
-        if gold and metrics is None:
-            raise ValueError("Prediction slice mixes labeled and unlabeled tasks; select one kind.")
         destination = output or load.parent / "evaluation"
         write_json(destination / "predictions.json", predictions)
         write_json(destination / "metrics.json", asdict(metrics) if metrics else None)
