@@ -28,6 +28,15 @@ def dataset(path: Path) -> Path:
     return path
 
 
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_help_prints_options_without_requiring_data(flag: str) -> None:
+    result = CliRunner().invoke(app, [flag])
+    assert result.exit_code == 0, result.output
+    assert "Usage:" in result.stdout
+    assert "--data" in result.stdout and "--stage" in result.stdout
+    assert "Missing option" not in result.output
+
+
 def test_first_five_fit_next_five_predict_and_reload(tmp_path: Path) -> None:
     data = dataset(tmp_path / "data.json")
     artifact = tmp_path / "artifact"

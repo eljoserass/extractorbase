@@ -55,6 +55,11 @@ uv sync --extra bert
 uv run --extra bert python cli.py --help
 ```
 
+`-h` and `--help` both display usage. If errors are visible but help and results
+are blank, stdout may have been redirected by the shell.
+`uv run python cli.py --help 1>&2` sends help to stderr as a diagnostic; in an
+interactive terminal, `exec 1>/dev/tty` restores stdout to that terminal.
+
 `.python-version` selects Python 3.12; `uv.lock` pins the resolved dependencies.
 PyTorch uses its CPU wheel index. The first BERT fit downloads the multilingual
 DistilBERT checkpoint; subsequent predictions load the saved weights locally.
@@ -365,7 +370,7 @@ Predictions, scores and manifests are under `runs/dummy_first5/`,
 `runs/bert_first5/` and `runs/gemma_first5_final/`; unsuccessful diagnosis runs are
 also retained locally for inspection.
 
-The final suite has **31 passing tests**, covering annotation selection, offsets,
+The current suite has **33 passing tests**, covering annotation selection, offsets,
 strict scoring, nested/duplicate cases, artifact persistence, BERT windows,
 LLM grounding, failure denominators and the approval flow. Ruff, formatting,
 mypy and `uv pip check` pass. Tests require neither a remote model download nor
@@ -383,3 +388,12 @@ and `DEVELOPMENT.md`:
 | `432c693` | Strict-matching edge-case fix, approval regression and usage/architecture documentation. |
 | `092f235` | Grounded LLM output, visible diagnostics, typed manifests and warning/abstention tests. |
 | Final documentation push | Recorded the completed real runs, measured limitations and this memoir. |
+| CLI help follow-up | Added `-h`, tested both help flags, and documented shell stdout diagnosis. |
+
+The first follow-up concerned apparently silent help and run commands. Both
+rendered correctly in subprocess and PTY checks. A nested interactive bash had
+stdout connected to a pipe while stderr remained on the terminal, matching the
+reported visibility difference. The existing Gemma artifact had a successful,
+unapproved training preview; repeating `run` also produced the expected nonempty
+artifact error. I added the missing `-h` alias and two help regressions; all 33
+tests, Ruff and mypy pass.

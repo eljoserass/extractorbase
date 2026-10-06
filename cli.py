@@ -32,7 +32,10 @@ from data import (
 from evaluator import MetricsReport, score
 from methods.base import Method
 
-app = typer.Typer(pretty_exceptions_enable=False)
+app = typer.Typer(
+    pretty_exceptions_enable=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
 console = Console()
 DEFAULT_SCHEMA = Path(__file__).parent / "schemas" / "reumalago.xml"
 

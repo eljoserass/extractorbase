@@ -160,3 +160,26 @@ compatible. The working dependencies and CPU checkpoint are installed locally.
 Git contains no dataset, prediction or model-weight files. Appended the requested
 memoir at the end of README, with the measured scores, known limitations and
 progressive push record. The final push contains this documentation only.
+
+Stage 5 was committed and pushed as `08a5a76` (`docs: record verified real-data
+runs and development memoir`).
+
+## CLI follow-up — help aliases and stdout diagnosis (6 October 2026)
+
+The user reported that successful commands and `--help` appeared blank while
+missing-option errors were visible. `--help` reproduced normally in both captured
+subprocess output and a PTY. Process descriptors showed a nested interactive bash
+with stdout directed into a pipe and stderr still directed to its terminal; this
+matches the reported symptom. Documented a stderr diagnostic and how to restore
+stdout in an interactive terminal. No user terminal or descriptor was modified.
+
+The existing `runs/gemma/artifact` contains all fitting/preview files, has zero
+preview failures, and remains unapproved. Repeating the user's exact `run`
+invocation printed the nonempty-directory error with exit code 1. The user can
+resume from the saved preview using `--stage predict --load runs/gemma/artifact`
+and review/approve it, or choose a fresh `--dump` for another fit.
+
+Added the missing `-h` alias through Typer's context settings. Two tests assert
+that `-h` and `--help` print options on stdout and exit successfully without
+requiring a dataset. All 33 tests pass, plus Ruff and mypy. The pre-existing local
+blank-line edit in cli.py is preserved and excluded from the commit.
