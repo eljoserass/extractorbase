@@ -43,6 +43,10 @@ things to consider for next:
 
 ## Running the first harness
 
+Start with the [installation guide](docs/install.md), then use the
+[CLI guide](docs/cli.md) for stages, sample offsets, every flag, approval,
+saved files and troubleshooting.
+
 The working version is a local Python CLI. It reads Label Studio exports, fits an
 extractor on a selected slice, saves and reloads its artifact, shows a training
 preview for approval, then predicts a separate slice and scores it with nervaluate.
@@ -397,3 +401,13 @@ reported visibility difference. The existing Gemma artifact had a successful,
 unapproved training preview; repeating `run` also produced the expected nonempty
 artifact error. I added the missing `-h` alias and two help regressions; all 33
 tests, Ruff and mypy pass.
+
+The next follow-up added `docs/cli.md` as the dedicated command reference. It
+explains zero-based offsets, stage-specific defaults, the combined `run` slices,
+all flags, approval, saved files and troubleshooting, with runnable examples.
+`docs/install.md` separately covers cloning, uv/Python dependencies, local exports,
+LM Studio and setup checks. Both guides are linked from the README.
+The documented dummy 5+5 lifecycle was verified against the real export in a
+temporary directory. The CLI guide also explains that the prediction-start line
+comes after approval, including the hidden-prompt symptom caused by redirected
+shell stdout.

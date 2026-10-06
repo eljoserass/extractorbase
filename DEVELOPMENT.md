@@ -183,3 +183,43 @@ Added the missing `-h` alias through Typer's context settings. Two tests assert
 that `-h` and `--help` print options on stdout and exit successfully without
 requiring a dataset. All 33 tests pass, plus Ruff and mypy. The pre-existing local
 blank-line edit in cli.py is preserved and excluded from the commit.
+
+The CLI help follow-up was committed and pushed as `a745da3` (`fix: support short
+CLI help and document stdout diagnosis`).
+
+## CLI documentation — offsets and command reference (6 October 2026)
+
+Created `docs/cli.md` and linked it from the README. The guide documents setup,
+stages, required flags, every option, methods, approval, saved files, gold
+selection and troubleshooting. Offset examples use array positions rather than
+assuming Label Studio IDs match their position. A selection diagram shows how
+`run` predicts immediately after the fitting slice; standalone prediction's fixed
+default offset 5 is called out, including fits of different sizes and new files.
+
+Examples cover inspection, Gemma's 5+5 run, BERT fit/reload, resuming the existing
+Gemma artifact, unlabeled inputs and a dummy smoke test. All option names and
+defaults were checked against the current CLI. This change is documentation only;
+the existing user changes and generated artifacts are untouched.
+
+Added `docs/install.md` at the user's follow-up request. It covers cloning,
+installing uv, locked dependency setup with/without the BERT extra, Python,
+dataset placement, LM Studio, smoke tests, development checks and troubleshooting.
+Installation commands were checked against the current uv documentation; server
+setup was checked against LM Studio's official documentation. Both guides link to
+one another and are linked from the README.
+
+Validation: the guide covers all 25 CLI parameter options and both help aliases;
+relative Markdown links, code fences and every Bash example in the guides and
+README pass checks. `uv lock --check` succeeds, and a locked BERT sync dry-run
+would make no changes. The documented dummy 5+5 run succeeds with `grupo1.json`
+using a temporary destination: training IDs 1–5, prediction IDs 6–10, approval
+recorded, prediction-start message and zero F1 printed. Existing artifacts were
+not overwritten.
+
+The user also reported that the prediction-start line was invisible. Read-only
+inspection confirmed the shell's stdout still pointed to a pipe while stderr
+pointed to its terminal, and `runs/gemma/artifact/fit.json` remained unapproved.
+Reproducing the exact command with an explicit `n` printed the saved preview and
+approval prompt, then aborted before prediction, as intended. The guide now
+explains that this line follows approval and how to restore stdout in the user's
+terminal. No CLI behavior was changed for this shell issue.
