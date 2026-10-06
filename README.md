@@ -38,7 +38,8 @@ things to consider for next:
 - relation evaluation not implemented yet
 - cli has too many logic, should consider creating a runner and or factory and or orchestration  for defining the pipeline expelicitly and not letting the frontend being the one assembling it
 - relation evaluation not implemented yet
-- agent not implemented yets
+- agent not implemented yet
+- clone on mac studio, send data, install, ml server active, try model for extraction and agent
 
 ## Running the first harness
 
@@ -311,3 +312,74 @@ uv run --extra bert mypy data.py evaluator.py cli.py methods
 Tests use synthetic annotations, fake LLM inference and a tiny locally constructed
 BERT checkpoint. They need neither an API key nor a remote model download.
 Implementation stages and validation are recorded in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Development memoir — 6 October 2026
+
+I kept the repository's original modules and product notes, then built the small
+evaluation shell around them. `uv` installed Python 3.12.14 and the locked
+libraries, including nervaluate 1.2.1, Pydantic AI slim 2.54.0, Transformers 5.18.0
+and PyTorch 2.14.1 CPU. The supplied XML became the task vocabulary, and the real
+Label Studio files stayed local and unchanged.
+
+The first important finding was annotation provenance: the original automated
+annotations carry the ground-truth flag, while the separate clinician revisions
+usually do not. I implemented the explicit reviewer-based policy, reported the
+in-place revisions and later-original ambiguities, and inspected all 800 tasks.
+That inspection also surfaced the invalid span, quote/offset discrepancies,
+duplicate spans and unlabeled relations documented above.
+
+The shared API now covers typed training examples, task specifications, method
+configuration, concrete artifacts, text-only prediction inputs and score reports.
+Each method owns its learning procedure. The runner selects slices, stores
+provenance, previews the persisted artifact, records approval, and keeps held-out
+gold outside prediction. Dummy, multilingual DistilBERT and local Gemma all use
+the same lifecycle. A small adapter fixes nervaluate's greedy ordering edge case
+without replacing its metric implementation.
+
+The main live-inference hiccup was Gemma's output. I disabled API reasoning and
+bounded retries while diagnosing responses; it still sometimes expanded
+abbreviations, miscounted occurrences or created invalid relation references.
+The final grounding adapter
+emits literal spans, abstains on unsupported mentions, corrects only unambiguous
+unique-quote indices, and shows every change before approval. It saved 31 warnings
+on the training preview and 35 on the held-out slice. Actual API/schema failures
+still produce saved errors and prevent approval; extraction warnings remain
+visible for judging model quality.
+
+The real smoke test fits grupo1 IDs **1–5** (165 gold entities), saves/reloads the
+artifact, and predicts IDs **6–10** (51 gold entities). Results:
+
+| Method | Training preview F1 | Held-out precision | Held-out recall | Held-out F1 | Document errors |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Dummy | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0 |
+| DistilBERT, frozen encoder, 3 epochs | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0 |
+| Gemma 4 E2B, five demonstrations | 0.7751 | 0.2326 | 0.1961 | 0.2128 | 0 |
+
+These scores verify the pipeline and expose weak extraction quality. The five
+held-out records are a smoke test, not a paper reproduction. No held-out labels
+were used to adjust the methods. BERT's predictions were identical after a
+separate-process reload. Gemma's final 5+5 command completed with exit code zero,
+and a fresh-process Gemma reload reproduced the first held-out document exactly.
+The real terminal approval question was exercised with the dummy method.
+Predictions, scores and manifests are under `runs/dummy_first5/`,
+`runs/bert_first5/` and `runs/gemma_first5_final/`; unsuccessful diagnosis runs are
+also retained locally for inspection.
+
+The final suite has **31 passing tests**, covering annotation selection, offsets,
+strict scoring, nested/duplicate cases, artifact persistence, BERT windows,
+LLM grounding, failure denominators and the approval flow. Ruff, formatting,
+mypy and `uv pip check` pass. Tests require neither a remote model download nor
+an API server. Relation metrics remain explicitly uncomputed; BERT and Gemma
+quality, development splits and paper-compatible relation/overlap evaluation
+are the next experiments.
+
+Work was committed and pushed progressively, with details in each commit body
+and `DEVELOPMENT.md`:
+
+| Push | Change |
+| --- | --- |
+| `a254216` | uv setup, typed Label Studio data, gold selection, evaluator, base API and dummy method. |
+| `f5c033d` | BERT/Gemma artifacts, CLI stages, review/approval and lifecycle tests. |
+| `432c693` | Strict-matching edge-case fix, approval regression and usage/architecture documentation. |
+| `092f235` | Grounded LLM output, visible diagnostics, typed manifests and warning/abstention tests. |
+| Final documentation push | Recorded the completed real runs, measured limitations and this memoir. |

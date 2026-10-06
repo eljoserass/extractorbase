@@ -119,3 +119,44 @@ invalid labels/IDs/relations, unique-quote correction, and a CLI test showing
 warnings before approval while saving valid predictions. Ruff and mypy pass.
 The final live Gemma run has completed the first four training previews without
 document errors; the remaining preview and held-out evaluation are in progress.
+
+Stage 4 was committed and pushed as `092f235` (`fix: ground Gemma mentions and
+report extraction warnings before approval`).
+
+## Stage 5 — completed smoke tests and memoir (6 October 2026)
+
+The final live Gemma command completed with exit code zero:
+
+```bash
+uv run --extra bert python cli.py --stage run --method llm \
+  --data data/grupo1.json --dump runs/gemma_first5_final/artifact \
+  --output runs/gemma_first5_final/evaluation --yes
+```
+
+The saved records confirm train IDs 1–5 and clinician annotation IDs
+4585–4589, evaluation IDs 6–10, training support 165 and evaluation support 51.
+Training resubstitution precision/recall/F1: 0.903226 / 0.678788 / 0.775087.
+Held-out strict entity precision/recall/F1: 0.232558 / 0.196078 / 0.212766.
+There are zero failed documents, 31 training grounding warnings and 35 evaluation
+warnings. Per-document evaluation entity counts are 7, 4, 26, 6 and 0; relation
+counts are 1, 2, 0, 2 and 0. These are weak baseline results, not an accuracy claim.
+No held-out gold was passed to the method or used in the grounding changes.
+
+The real dummy and three-epoch frozen BERT runs also completed on the same slices,
+both with strict F1 0 and no document failures. BERT emitted 48 held-out entities,
+none matching gold exactly. A separate-process BERT load reproduced its original
+predictions exactly. A real PTY dummy fit printed its training preview and stopped
+at the approval question; entering `y` saved approval, and a later prediction
+process completed without another question. Synthetic tests cover declining and
+failure cases.
+
+An additional fresh-process Gemma prediction (`--stage predict --offset 5
+--count 1 --load runs/gemma_first5_final/artifact`) completed with exit code zero
+and reproduced the first held-out task prediction, including warnings, exactly.
+
+Final checks: 31 tests passed, mypy passed for all nine implementation modules,
+Ruff and formatting passed, and `uv pip check` reported all 66 installed packages
+compatible. The working dependencies and CPU checkpoint are installed locally.
+Git contains no dataset, prediction or model-weight files. Appended the requested
+memoir at the end of README, with the measured scores, known limitations and
+progressive push record. The final push contains this documentation only.
