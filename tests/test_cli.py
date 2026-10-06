@@ -37,13 +37,15 @@ def test_help_prints_options_without_requiring_data(flag: str) -> None:
     assert "Missing option" not in result.output
 
 
-def test_first_five_fit_next_five_predict_and_reload(tmp_path: Path) -> None:
+def test_first_five_fit_next_five_predict_and_reload(tmp_path: Path, schema_path: Path) -> None:
     data = dataset(tmp_path / "data.json")
     artifact = tmp_path / "artifact"
     output = tmp_path / "evaluation"
     result = CliRunner().invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--method",
@@ -69,6 +71,8 @@ def test_first_five_fit_next_five_predict_and_reload(tmp_path: Path) -> None:
     reload = CliRunner().invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--stage",
@@ -83,12 +87,25 @@ def test_first_five_fit_next_five_predict_and_reload(tmp_path: Path) -> None:
     assert "Approve" not in reload.output
 
 
-def test_declining_keeps_artifact_unapproved_and_blocks_prediction(tmp_path: Path) -> None:
+def test_declining_keeps_artifact_unapproved_and_blocks_prediction(
+    tmp_path: Path, schema_path: Path
+) -> None:
     data = dataset(tmp_path / "data.json")
     artifact = tmp_path / "artifact"
     result = CliRunner().invoke(
         app,
-        ["--data", str(data), "--method", "dummy", "--stage", "run", "--dump", str(artifact)],
+        [
+            "--task-spec",
+            str(schema_path),
+            "--data",
+            str(data),
+            "--method",
+            "dummy",
+            "--stage",
+            "run",
+            "--dump",
+            str(artifact),
+        ],
         input="n\n",
     )
     assert result.exit_code != 0
@@ -96,13 +113,15 @@ def test_declining_keeps_artifact_unapproved_and_blocks_prediction(tmp_path: Pat
     assert not (tmp_path / "evaluation" / "predictions.json").exists()
 
 
-def test_training_data_cannot_be_used_as_held_out(tmp_path: Path) -> None:
+def test_training_data_cannot_be_used_as_held_out(tmp_path: Path, schema_path: Path) -> None:
     data = dataset(tmp_path / "data.json")
     artifact = tmp_path / "artifact"
     runner = CliRunner()
     result = runner.invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--method",
@@ -118,6 +137,8 @@ def test_training_data_cannot_be_used_as_held_out(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--stage",
@@ -132,13 +153,15 @@ def test_training_data_cannot_be_used_as_held_out(tmp_path: Path) -> None:
     assert result.exit_code == 1 and "fitting documents" in result.output
 
 
-def test_unlabeled_inference_has_no_fabricated_metrics(tmp_path: Path) -> None:
+def test_unlabeled_inference_has_no_fabricated_metrics(tmp_path: Path, schema_path: Path) -> None:
     data = dataset(tmp_path / "data.json")
     artifact = tmp_path / "artifact"
     runner = CliRunner()
     result = runner.invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--method",
@@ -157,6 +180,8 @@ def test_unlabeled_inference_has_no_fabricated_metrics(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(unlabeled),
             "--stage",
@@ -176,7 +201,7 @@ def test_unlabeled_inference_has_no_fabricated_metrics(tmp_path: Path) -> None:
 
 
 def test_failed_training_preview_cannot_be_approved_in_predict_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, schema_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def failed_predict(
         self: DummyMethod, artifact: DummyArtifact, inputs: Sequence[DocumentInput]
@@ -192,6 +217,8 @@ def test_failed_training_preview_cannot_be_approved_in_predict_stage(
     result = runner.invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--method",
@@ -206,14 +233,24 @@ def test_failed_training_preview_cannot_be_approved_in_predict_stage(
     assert result.exit_code == 1 and "unapproved" in result.output
     result = runner.invoke(
         app,
-        ["--data", str(data), "--stage", "predict", "--load", str(artifact), "--yes"],
+        [
+            "--task-spec",
+            str(schema_path),
+            "--data",
+            str(data),
+            "--stage",
+            "predict",
+            "--load",
+            str(artifact),
+            "--yes",
+        ],
     )
     assert result.exit_code == 1 and "failed training preview" in result.output
     assert not json.loads((artifact / "fit.json").read_text())["approved"]
 
 
 def test_grounding_warnings_are_shown_before_approval_and_saved(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, schema_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class FakeAgent:
         def run_sync(self, text: str, *, deps: DocumentInput) -> SimpleNamespace:
@@ -235,6 +272,8 @@ def test_grounding_warnings_are_shown_before_approval_and_saved(
     result = CliRunner().invoke(
         app,
         [
+            "--task-spec",
+            str(schema_path),
             "--data",
             str(data),
             "--method",

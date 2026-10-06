@@ -262,3 +262,27 @@ fresh-process reload. The nine focused dummy/BERT/LLM tests pass in 5.24 seconds
 including the tiny local BERT fit; no pretrained checkpoint download or live LLM
 request was needed. `git diff --check` passes. The user's CLI edits remain
 unstaged and existing run artifacts are untouched.
+
+## Privacy correction — keep the task schema local (6 October 2026)
+
+The user clarified that the Label Studio XML is private. It had been copied from
+local data into `schemas/reumalago.xml` and tracked in the first implementation
+commit. This was an incorrect assumption about what could be published.
+
+Removed the XML from the Git index while preserving its local bytes, and ignored
+the entire `schemas/` directory alongside the already ignored `data/` and `runs/`.
+Installation/CLI documentation now requires a locally supplied XML at the default
+path or through `--task-spec`. CLI tests generate their own minimal XML fixture
+and pass its path explicitly, so Git does not need the private schema for tests.
+All 33 tests pass and Ruff passes on the modified tests.
+
+The published repository has one branch (`master`), no tags and no pull-request
+refs. Clean that branch in an isolated clone with git-filter-repo's sensitive-data
+removal mode, excluding `schemas/` and `data/` from its history. Verify the schema
+blob and paths are absent before updating GitHub with a force-with-lease push.
+Keep the current checkout, local data/artifacts and the user's unstaged CLI edits.
+Earlier commit IDs in this development record predate the history rewrite.
+
+GitHub documents that cached views and other clones can retain removed data;
+complete server-side cache removal requires GitHub Support. See its
+[sensitive-data removal instructions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).

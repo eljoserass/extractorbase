@@ -109,8 +109,19 @@ data/
 ```
 
 Each file should be a Label Studio JSON export containing an array of tasks with
-`id`, `data.text` and, for fitting/evaluation, `annotations`. The supplied schema
-already exists at `schemas/reumalago.xml`.
+`id`, `data.text` and, for fitting/evaluation, `annotations`.
+
+The Label Studio XML schema is private and is not included in Git. Copy your
+local configuration to the default path if you want to use the examples unchanged:
+
+```bash
+mkdir -p schemas
+cp data/label_studio_config.xml schemas/reumalago.xml
+```
+
+Alternatively, keep it under `data/` and pass
+`--task-spec data/label_studio_config.xml`. Both `data/` and `schemas/` are ignored
+by Git; keep real exports, private schemas and artifacts in their ignored folders.
 
 Check loading and gold selection:
 
@@ -187,7 +198,8 @@ uv run ruff check .
 uv run --extra bert mypy data.py evaluator.py cli.py methods
 ```
 
-The tests use synthetic data, fake LLM inference and a tiny local BERT checkpoint.
+The tests generate their own small synthetic schema and use synthetic data,
+fake LLM inference and a tiny local BERT checkpoint. They do not need the private XML.
 They do not require LM Studio or downloading a pretrained model. Without the BERT
 extra, BERT-specific tests are skipped.
 

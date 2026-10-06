@@ -23,6 +23,11 @@ PyTorch, Transformers and Accelerate available through uv. `python cli.py` runs
 the application; `--method bert` selects its BERT extractor. LLM and dummy commands
 can use `uv run python cli.py ...`.
 
+The private XML is supplied locally, not through Git. Put it at
+`schemas/reumalago.xml` or select its local path with `--task-spec`; see
+[schema setup](install.md#4-add-the-label-studio-exports). `data/` and `schemas/`
+are ignored so exports and schema definitions stay local.
+
 For LLM inference, start LM Studio's server and load `google/gemma-4-e2b`.
 The default endpoint is `http://localhost:1234/v1`. BERT's first fit downloads the
 multilingual DistilBERT checkpoint; later predictions load the saved weights.

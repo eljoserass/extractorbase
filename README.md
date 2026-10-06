@@ -71,7 +71,10 @@ interactive terminal, `exec 1>/dev/tty` restores stdout to that terminal.
 PyTorch uses its CPU wheel index. The first BERT fit downloads the multilingual
 DistilBERT checkpoint; subsequent predictions load the saved weights locally.
 For dummy/LLM use without PyTorch, `uv sync` is sufficient. LM Studio runs separately.
-`data/`, `.venv/`, model caches and `runs/` are ignored by Git.
+`data/`, `schemas/`, `.venv/`, model caches and `runs/` are ignored by Git.
+The private Label Studio XML is supplied locally at `schemas/reumalago.xml`, or
+through `--task-spec data/label_studio_config.xml`; see the
+[schema setup instructions](docs/install.md#4-add-the-label-studio-exports).
 
 Inspect both exports before choosing a gold policy:
 
@@ -427,3 +430,11 @@ and flat BIO projection for BERT, demonstration prompting and literal-quote
 grounding for LLM, and successful empty predictions for dummy. The guides trace
 the current implementation, link to its tests and primary background sources,
 and distinguish algorithm settings from the options exposed by the CLI.
+
+The private Label Studio XML had been included in the first implementation
+commit. The privacy correction keeps that file local, ignores `schemas/`, and
+removes private schema/data directories from the published branch history. CLI
+tests now generate a small synthetic schema rather than depending on the private
+XML. Installation documentation explains how to supply a local schema after
+cloning. Commit identifiers recorded above refer to the development history
+before this cleanup.

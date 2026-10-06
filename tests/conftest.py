@@ -1,3 +1,6 @@
+from pathlib import Path
+from xml.etree.ElementTree import Element, SubElement, tostring
+
 import pytest
 
 from data import DocumentInput, EntityResult, GoldAnnotation, TaskSpec, TrainingExample
@@ -16,6 +19,22 @@ def entity(start: int = 0, end: int = 2, label: str = "D:AR", id: str = "e1") ->
 @pytest.fixture
 def spec() -> TaskSpec:
     return TaskSpec(("D:AR", "T:FR"), ("valor",))
+
+
+@pytest.fixture
+def schema_path(tmp_path: Path, spec: TaskSpec) -> Path:
+    """Build the tiny test vocabulary locally; never depend on the private schema."""
+    root = Element("View")
+    labels = SubElement(root, "Labels", name=spec.from_name, toName=spec.to_name)
+    for label in spec.entity_labels:
+        SubElement(labels, "Label", value=label)
+    relations = SubElement(root, "Relations")
+    for label in spec.relation_labels:
+        SubElement(relations, "Relation", value=label)
+    SubElement(root, "Text", name=spec.to_name, value="$text")
+    path = tmp_path / "test_schema.xml"
+    path.write_bytes(tostring(root, encoding="utf-8"))
+    return path
 
 
 @pytest.fixture
