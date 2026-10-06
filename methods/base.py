@@ -1,5 +1,39 @@
-# define the interfaces protocosl of a extractor
-# something like fit() and it has some basic params, the tricky part is the input can be different for each. 
-# the output should be somewhat the same, maybe each can have different requirements and stuff
-# but basically all should somewhat fit() and predict() based on its input and output, and have a way to load and dump its config
-# - we will later define something prettier to load and dumpt that its a json/yaml and not a nasty pickle
+"""Each method owns its learning procedure and artifact representation."""
+
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Generic, TypeVar
+
+from data import DocumentInput, LabelStudioTaskPrediction, TaskSpec, TrainingExample
+from evaluator import MetricsReport
+
+ArtifactT = TypeVar("ArtifactT")
+type Scorer = Callable[
+    [Sequence[LabelStudioTaskPrediction], Sequence[TrainingExample]], MetricsReport
+]
+
+
+class Method(ABC, Generic[ArtifactT]):
+    @abstractmethod
+    def fit(
+        self,
+        train_examples: Sequence[TrainingExample],
+        task_spec: TaskSpec,
+        *,
+        dev_examples: Sequence[TrainingExample] | None = None,
+        scorer: Scorer | None = None,
+    ) -> ArtifactT: ...
+
+    @abstractmethod
+    def dump(self, artifact: ArtifactT, directory: Path) -> None: ...
+
+    @abstractmethod
+    def load(self, directory: Path) -> ArtifactT: ...
+
+    @abstractmethod
+    def predict(
+        self,
+        artifact: ArtifactT,
+        inputs: Sequence[DocumentInput],
+    ) -> list[LabelStudioTaskPrediction]: ...

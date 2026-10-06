@@ -1,0 +1,37 @@
+[project]
+name = "extractorbase"
+version = "0.1.0"
+description = "A small, local clinical information extraction evaluation harness"
+requires-python = ">=3.12"
+dependencies = ["nervaluate>=1.0", "pydantic>=2.10", "pydantic-ai-slim[openai]>=1.0", "typer>=0.16"]
+
+[project.optional-dependencies]
+bert = ["torch>=2.5", "transformers>=4.50", "accelerate>=1.0"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.11", "mypy>=1.15"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
