@@ -30,6 +30,9 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 
+[tool.ruff.lint.per-file-ignores]
+"methods/agentic_spacy.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.12"
 check_untyped_defs = true

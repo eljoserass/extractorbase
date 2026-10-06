@@ -25,3 +25,39 @@ modules. Both real exports loaded: grupo1 has 400 tasks, 6,929 selected entities
 2,170 relations; grupo2 has 400 tasks, 8,143 entities and 2,870 relations. Inspection
 reports 17/27 issues respectively, including the one invalid zero-length span in grupo1.
 No dataset or generated artifact is included in the commit.
+
+Stage 1 was committed and pushed as `a254216` (`feat: add typed Label Studio data
+and evaluation core`).
+
+## Stage 2 — methods and reviewable CLI (6 October 2026)
+
+Implemented the multilingual DistilBERT token classifier with a frozen encoder by
+default, optional full fine-tuning, overlapping tokenizer windows, BIO projection
+notes, and local safetensor/tokenizer persistence. The trainer owns loss and AdamW;
+the shared evaluator is independent of that optimization loop. Reloading requires
+no model download.
+
+Implemented the Pydantic AI adapter for Gemma through LM Studio. Fitting saves a
+Spanish prompt and the selected demonstrations. Inference uses validated exact
+quotes and occurrence indices, then converts them to Label Studio character spans.
+It validates entity labels, relation labels and endpoints, with one semantic repair
+retry. Failed requests retain the document, save the error, and prevent approval.
+HTTP retries are disabled so network failures are bounded. Thinking is off by default
+using `reasoning_effort="none"`; `--thinking` leaves the server's setting active.
+The installed server advertises Gemma's on/off reasoning capability; a live structured
+probe returned zero reasoning tokens with the parameter.
+
+The Typer CLI supports inspect/fit/predict/run, sequential slice flags, artifact
+paths, task XML, optional instructions, gold selection, and method configuration.
+Fitting reloads the saved extractor for a training preview, prints entity/relation
+counts and strict scores, then asks for approval. `--yes` permits explicit scripted
+approval. Prediction checks training-text hashes, receives text-only inputs, writes
+Label Studio predictions and records gold provenance, package versions and scores.
+Unlabeled inference writes null metrics. Approval cannot bypass an inference failure.
+
+Validation before this push: 23 tests passed, including a tiny local BERT train/save/
+reload test, long-document windows, LLM conversion/persistence/failure behavior and
+the interactive CLI approval lifecycle. Ruff and mypy passed. Real dummy and BERT
+runs completed on grupo1 IDs 1–5 for fitting and 6–10 for evaluation. The initial
+three-epoch frozen BERT run had strict F1 0 on both slices; this validates execution,
+not useful extraction quality. Live full Gemma verification is still in progress.

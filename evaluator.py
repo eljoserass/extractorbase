@@ -71,7 +71,7 @@ def score(
             value["strict"].f1,
             value["strict"].possible,
         )
-        for label, value in results["entities"].items()
+        for label, value in sorted(results["entities"].items())
     }
     return MetricsReport(
         PRFScore(overall.precision, overall.recall, overall.f1, overall.possible),

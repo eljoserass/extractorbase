@@ -1,0 +1,160 @@
+import json
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from cli import app
+from tests.conftest import entity
+
+
+def dataset(path: Path) -> Path:
+    tasks = [
+        {
+            "id": index,
+            "data": {"text": f"AR case {index}"},
+            "annotations": [
+                {"id": index, "completed_by": 3, "result": [entity()]},
+            ],
+        }
+        for index in range(10)
+    ]
+    path.write_text(json.dumps(tasks))
+    return path
+
+
+def test_first_five_fit_next_five_predict_and_reload(tmp_path: Path) -> None:
+    data = dataset(tmp_path / "data.json")
+    artifact = tmp_path / "artifact"
+    output = tmp_path / "evaluation"
+    result = CliRunner().invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--method",
+            "dummy",
+            "--stage",
+            "run",
+            "--dump",
+            str(artifact),
+            "--output",
+            str(output),
+        ],
+        input="y\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "Approve this fitted artifact" in result.output
+    assert "HELD-OUT" in result.output
+    config = json.loads((output / "config.json").read_text())
+    assert config["train_ids"] == [0, 1, 2, 3, 4]
+    assert config["evaluation_ids"] == [5, 6, 7, 8, 9]
+    assert json.loads((artifact / "fit.json").read_text())["approved"]
+    assert len(json.loads((output / "predictions.json").read_text())) == 5
+    assert json.loads((output / "metrics.json").read_text())["strict_micro"]["f1"] == 0
+    reload = CliRunner().invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--stage",
+            "predict",
+            "--load",
+            str(artifact),
+            "--output",
+            str(tmp_path / "reloaded"),
+        ],
+    )
+    assert reload.exit_code == 0, reload.output
+    assert "Approve" not in reload.output
+
+
+def test_declining_keeps_artifact_unapproved_and_blocks_prediction(tmp_path: Path) -> None:
+    data = dataset(tmp_path / "data.json")
+    artifact = tmp_path / "artifact"
+    result = CliRunner().invoke(
+        app,
+        ["--data", str(data), "--method", "dummy", "--stage", "run", "--dump", str(artifact)],
+        input="n\n",
+    )
+    assert result.exit_code != 0
+    assert not json.loads((artifact / "fit.json").read_text())["approved"]
+    assert not (tmp_path / "evaluation" / "predictions.json").exists()
+
+
+def test_training_data_cannot_be_used_as_held_out(tmp_path: Path) -> None:
+    data = dataset(tmp_path / "data.json")
+    artifact = tmp_path / "artifact"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--method",
+            "dummy",
+            "--stage",
+            "fit",
+            "--dump",
+            str(artifact),
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--stage",
+            "predict",
+            "--load",
+            str(artifact),
+            "--offset",
+            "0",
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 1 and "fitting documents" in result.output
+
+
+def test_unlabeled_inference_has_no_fabricated_metrics(tmp_path: Path) -> None:
+    data = dataset(tmp_path / "data.json")
+    artifact = tmp_path / "artifact"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--method",
+            "dummy",
+            "--stage",
+            "fit",
+            "--dump",
+            str(artifact),
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0
+    unlabeled = tmp_path / "unlabeled.json"
+    unlabeled.write_text(json.dumps([{"id": 11, "data": {"text": "new FR document"}}]))
+    output = tmp_path / "output"
+    result = runner.invoke(
+        app,
+        [
+            "--data",
+            str(unlabeled),
+            "--stage",
+            "predict",
+            "--load",
+            str(artifact),
+            "--offset",
+            "0",
+            "--count",
+            "1",
+            "--output",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads((output / "metrics.json").read_text()) is None
