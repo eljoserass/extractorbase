@@ -277,12 +277,20 @@ and pass its path explicitly, so Git does not need the private schema for tests.
 All 33 tests pass and Ruff passes on the modified tests.
 
 The published repository has one branch (`master`), no tags and no pull-request
-refs. Clean that branch in an isolated clone with git-filter-repo's sensitive-data
-removal mode, excluding `schemas/` and `data/` from its history. Verify the schema
-blob and paths are absent before updating GitHub with a force-with-lease push.
-Keep the current checkout, local data/artifacts and the user's unstaged CLI edits.
-Earlier commit IDs in this development record predate the history rewrite.
+refs. Cleaned that branch in an isolated clone with git-filter-repo's sensitive-data
+removal mode, excluding `schemas/` and `data/` from its history. Verified that the
+schema blob and paths are absent from every ref in the clean clone, and that
+filtering preserved the correction commit's tree. All 33 tests also passed in
+that clone without any private XML or datasets. Updated GitHub with an explicit
+force-with-lease push and confirmed the remote tip. The local XML's checksum and
+the user's unstaged CLI diff are unchanged. Earlier commit IDs in this development
+record predate the history rewrite.
 
 GitHub documents that cached views and other clones can retain removed data;
 complete server-side cache removal requires GitHub Support. See its
 [sensitive-data removal instructions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
+After the push, a read-only request to the old raw-file URL still returned bytes
+matching the private schema's checksum. Prepared a Support-request draft locally
+with the first changed commit, affected-ref count and removal details. It was
+not sent: the account owner must submit the request to GitHub Support for the
+server-side cache/object purge. No private schema contents were added to the draft.

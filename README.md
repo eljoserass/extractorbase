@@ -438,3 +438,7 @@ tests now generate a small synthetic schema rather than depending on the private
 XML. Installation documentation explains how to supply a local schema after
 cloning. Commit identifiers recorded above refer to the development history
 before this cleanup.
+The cleaned branch was verified without the schema, and all 33 tests passed in
+a checkout with no private XML. GitHub still served the old raw-file copy by its
+previous commit hash after the rewrite; a local Support-request draft contains
+the details needed for GitHub to clear those cached objects.
