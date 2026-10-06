@@ -1,4 +1,4 @@
-"""A frozen few-shot extraction recipe, served locally through LM Studio."""
+"""A frozen few-shot extraction recipe served locally by LM Studio or MLX LM."""
 
 import json
 import logging
@@ -11,7 +11,7 @@ from typing import Literal
 import pydantic_ai
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent, NativeOutput, PromptedOutput
 from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.profiles.openai import OpenAIModelProfile
@@ -38,6 +38,7 @@ class LLMConfig:
     retries: int = 1
     timeout: float = 120.0
     thinking: bool = False
+    backend: Literal["lmstudio", "mlx"] = "lmstudio"
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith(("http://", "https://")) or not self.model:
@@ -46,6 +47,8 @@ class LLMConfig:
             raise ValueError("Invalid LLM token limit, prompt limit, or retry count.")
         if self.timeout <= 0:
             raise ValueError("LLM request timeout must be positive.")
+        if self.backend not in ("lmstudio", "mlx"):
+            raise ValueError("LLM backend must be lmstudio or mlx.")
 
 
 class EntityMention(BaseModel):
@@ -297,15 +300,17 @@ class LLMMethod(Method[LLMArtifact]):
 
     def _agent(self, artifact: LLMArtifact) -> Agent[DocumentInput, Extraction]:
         pydantic_ai.BANNER_ENABLED = False
+        native_output = artifact.config.backend == "lmstudio"
         model = OpenAIChatModel(
             artifact.config.model,
             provider=OpenAIProvider(
                 openai_client=AsyncOpenAI(
-                    base_url=artifact.config.base_url, api_key="lm-studio", max_retries=0
+                    base_url=artifact.config.base_url, api_key="local", max_retries=0
                 )
             ),
             profile=OpenAIModelProfile(
-                supports_json_schema_output=True,
+                supports_json_schema_output=native_output,
+                supports_json_object_output=native_output,
                 openai_chat_supports_max_completion_tokens=False,
                 openai_chat_supports_multiple_system_messages=False,
             ),
@@ -315,11 +320,17 @@ class LLMMethod(Method[LLMArtifact]):
             max_tokens=artifact.config.max_output_tokens,
             timeout=artifact.config.timeout,
         )
-        if not artifact.config.thinking:
+        if artifact.config.backend == "mlx":
+            # MLX LM ignores response_format and reasoning_effort. Its tokenizer
+            # chat template controls thinking; Pydantic AI puts the schema in the prompt.
+            settings["extra_body"] = {
+                "chat_template_kwargs": {"enable_thinking": artifact.config.thinking}
+            }
+        elif not artifact.config.thinking:
             settings["openai_reasoning_effort"] = "none"
         return Agent(
             model,
-            output_type=NativeOutput(Extraction),
+            output_type=NativeOutput(Extraction) if native_output else PromptedOutput(Extraction),
             deps_type=DocumentInput,
             instructions=artifact.prompt,
             retries=artifact.config.retries,
@@ -334,7 +345,9 @@ class LLMMethod(Method[LLMArtifact]):
         agent = self._agent(artifact)
         predictions: list[LabelStudioTaskPrediction] = []
         for document in inputs:
-            logging.getLogger(__name__).info("Extracting document %s with Gemma...", document.id)
+            logging.getLogger(__name__).info(
+                "Extracting document %s with %s...", document.id, artifact.config.model
+            )
             try:
                 if (
                     len(artifact.prompt) + len(document.text)

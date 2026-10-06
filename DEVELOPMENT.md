@@ -294,3 +294,32 @@ matching the private schema's checksum. Prepared a Support-request draft locally
 with the first changed commit, affected-ref count and removal details. It was
 not sent: the account owner must submit the request to GitHub Support for the
 server-side cache/object purge. No private schema contents were added to the draft.
+
+## Mac MLX LM — adapter and dependencies (6 October 2026)
+
+The user requested a cloneable Mac setup using an existing local MLX LM model.
+The official server accepts OpenAI chat requests but ignores `response_format`
+and `reasoning_effort`. Merely changing the endpoint would therefore omit the
+output schema from the model's instructions.
+
+Added `--llm-backend lmstudio|mlx` and saved the backend in the LLM artifact.
+LM Studio retains native JSON schema output. MLX uses Pydantic AI's prompted
+schema output, the same typed parsing, retry and quote grounding, and its
+`chat_template_kwargs.enable_thinking` setting. Older artifacts default to
+LM Studio. Endpoint, model and backend are restored together on reload; changing
+prediction flags does not silently replace a saved recipe. Logging now names
+the selected model rather than always saying Gemma.
+
+Added a locked `mlx` extra for Apple Silicon macOS. MLX libraries are skipped on
+Linux/Windows, and macOS PyTorch resolves from PyPI rather than the CPU-only
+index used elsewhere. This keeps the LLM installation independent of BERT.
+
+Validation: all 40 tests pass with the BERT extra, including 21 focused LLM/CLI
+tests covering actual HTTP serialization,
+prompted versus native schema output, both thinking settings, malformed-output
+repair, old artifact loading and a synthetic CLI fit → reload → held-out predict
+without private files or a model server. Ruff and the five-source mypy check pass.
+The transport tests use OpenAI's existing `httpx2` dependency, so a base checkout
+does not need an unrelated optional package. Apple Silicon dependency selection
+passes a macOS 14 target dry run; actual Metal/model generation is not tested
+on this Linux machine. The installation guide is documented in the next increment.

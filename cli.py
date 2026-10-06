@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import typer
 from pydantic import BaseModel, Field, TypeAdapter
@@ -51,6 +51,11 @@ class MethodName(StrEnum):
     DUMMY = "dummy"
     BERT = "bert"
     LLM = "llm"
+
+
+class LLMBackend(StrEnum):
+    LMSTUDIO = "lmstudio"
+    MLX = "mlx"
 
 
 class FitRecord(BaseModel):
@@ -119,6 +124,7 @@ def build_method(
     model: str,
     seed: int,
     thinking: bool,
+    llm_backend: LLMBackend = LLMBackend.LMSTUDIO,
 ) -> Method[object]:
     # This is the one dispatch boundary. Each implementation keeps a concrete artifact type.
     if name == MethodName.DUMMY:
@@ -148,7 +154,15 @@ def build_method(
     logger.setLevel(logging.INFO)
 
     return cast(
-        Method[object], LLMMethod(LLMConfig(base_url=endpoint, model=model, thinking=thinking))
+        Method[object],
+        LLMMethod(
+            LLMConfig(
+                base_url=endpoint,
+                model=model,
+                thinking=thinking,
+                backend=cast(Literal["lmstudio", "mlx"], llm_backend.value),
+            )
+        ),
     )
 
 
@@ -238,6 +252,9 @@ def main(
     freeze_encoder: bool = typer.Option(True, "--freeze-encoder/--full-finetune"),
     endpoint: str = typer.Option("http://localhost:1234/v1", "--endpoint"),
     model: str = typer.Option("google/gemma-4-e2b", "--model"),
+    llm_backend: LLMBackend = typer.Option(
+        LLMBackend.LMSTUDIO, "--llm-backend", help="Local LLM server API behavior."
+    ),
     thinking: bool = typer.Option(False, "--thinking/--no-thinking"),
     seed: int = typer.Option(42, "--seed"),
     yes: bool = typer.Option(False, "--yes", help="Approve noninteractively for scripted runs."),
@@ -267,7 +284,15 @@ def main(
             warn_selected(selected, spec, gold_policy, reviewers)
             examples = [make_example(task, spec, gold_policy, reviewers) for task in selected]
             runner = build_method(
-                method, epochs, checkpoint, freeze_encoder, endpoint, model, seed, thinking
+                method,
+                epochs,
+                checkpoint,
+                freeze_encoder,
+                endpoint,
+                model,
+                seed,
+                thinking,
+                llm_backend,
             )
             console.print(f"Fitting {method} on document IDs {[e.input.id for e in examples]}.")
             artifact = runner.fit(examples, spec, scorer=score)
@@ -317,7 +342,15 @@ def main(
             raise ValueError("--method does not match the saved artifact.")
         method = header.method
         runner = build_method(
-            method, epochs, checkpoint, freeze_encoder, endpoint, model, seed, thinking
+            method,
+            epochs,
+            checkpoint,
+            freeze_encoder,
+            endpoint,
+            model,
+            seed,
+            thinking,
+            llm_backend,
         )
         artifact = runner.load(load)
         # All concrete artifacts carry the task definition restored from their manifest.
