@@ -40,3 +40,26 @@ def test_missing_documents_are_not_silently_dropped(example: TrainingExample) ->
 def test_different_entity_ids_do_not_affect_matching(example: TrainingExample) -> None:
     pred = prediction_for(example.input, [entity(id="different")], "test")
     assert score([pred], [example]).strict_micro.f1 == 1
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_overlap_error_cannot_steal_later_exact_match(
+    example: TrainingExample, reverse: bool
+) -> None:
+    example.gold.result.append(entity(0, 5, "T:FR", "nested"))
+    results = [entity(0, 1, id="wrong"), entity(), entity(0, 5, "T:FR", "nested")]
+    if reverse:
+        results.reverse()
+    report = score([prediction_for(example.input, results, "test")], [example])
+    assert report.strict_micro.precision == pytest.approx(2 / 3)
+    assert report.strict_micro.recall == 1
+    assert report.strict_micro.f1 == pytest.approx(0.8)
+    assert report.per_label["D:AR"].precision == 0.5
+    assert report.per_label["T:FR"].f1 == 1
+
+
+def test_duplicate_predictions_do_not_add_correct_matches(example: TrainingExample) -> None:
+    pred = prediction_for(example.input, [entity(), entity(id="duplicate")], "test")
+    report = score([pred], [example])
+    assert report.strict_micro.precision == 0.5
+    assert report.strict_micro.recall == 1

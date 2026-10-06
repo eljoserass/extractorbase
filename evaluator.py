@@ -1,5 +1,6 @@
 """Character-span NER scoring through nervaluate, independent of fitting and splitting."""
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TypedDict
@@ -42,6 +43,21 @@ def _entities(results: list[ResultItem]) -> list[EvalEntity]:
     ]
 
 
+def _exact_first(true: list[EvalEntity], pred: list[EvalEntity]) -> list[EvalEntity]:
+    """Prevent nervaluate's greedy overlap matching from consuming later exact matches."""
+    remaining = Counter((e["label"], e["start"], e["end"]) for e in true)
+    exact: list[EvalEntity] = []
+    other: list[EvalEntity] = []
+    for entity in pred:
+        key = (entity["label"], entity["start"], entity["end"])
+        if remaining[key]:
+            exact.append(entity)
+            remaining[key] -= 1
+        else:
+            other.append(entity)
+    return exact + other
+
+
 def score(
     predictions: Sequence[LabelStudioTaskPrediction], gold: Sequence[TrainingExample]
 ) -> MetricsReport:
@@ -53,11 +69,11 @@ def score(
         raise ValueError("Prediction and gold document IDs must match exactly.")
     true = [_entities(example.gold.result) for example in gold]
     pred: list[list[EvalEntity]] = []
-    for example in gold:
+    for example, true_entities in zip(gold, true, strict=True):
         task_predictions = by_id[example.input.id]["predictions"]
         if len(task_predictions) != 1:
             raise ValueError("Scoring expects exactly one prediction per document.")
-        pred.append(_entities(task_predictions[0]["result"]))
+        pred.append(_exact_first(true_entities, _entities(task_predictions[0]["result"])))
     tags = sorted({entity["label"] for document in [*true, *pred] for entity in document})
     failures = sum(bool(p.get("meta", {}).get("extraction_error")) for p in predictions)
     if not tags:

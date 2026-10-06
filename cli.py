@@ -325,7 +325,10 @@ def main(
                 raise ValueError(
                     "Artifact has a failed training preview; fit again before approval."
                 )
-            console.print((load / "training_metrics.json").read_text())
+            saved_preview = TypeAdapter(list[LabelStudioTaskPrediction]).validate_json(
+                (load / "training_predictions.json").read_text()
+            )
+            print_results(saved_preview, preview_report, "SAVED TRAIN preview — resubstitution")
             approve(load, fit_record, yes)
         selected = select_slice(tasks, evaluation_offset, evaluation_count)
         if any(text_hash(task.data.text) in fit_record.train_text_hashes for task in selected):

@@ -61,3 +61,29 @@ the interactive CLI approval lifecycle. Ruff and mypy passed. Real dummy and BER
 runs completed on grupo1 IDs 1–5 for fitting and 6–10 for evaluation. The initial
 three-epoch frozen BERT run had strict F1 0 on both slices; this validates execution,
 not useful extraction quality. Live full Gemma verification is still in progress.
+
+Stage 2 was committed and pushed as `f5c033d` (`feat: add local BERT and Gemma
+methods with reviewable CLI`).
+
+## Stage 3 — scoring edge cases and user documentation (6 October 2026)
+
+Inspection of nervaluate's installed strict strategy exposed greedy matching:
+an overlapping error can consume the gold entity needed by a later exact
+prediction. The in-memory adapter now places available exact matches first,
+respecting duplicate counts. Nervaluate still computes all reported metrics.
+Regression cases cover prediction-order independence, nested labels and duplicate
+predictions. Per-label results print in stable alphabetical order.
+
+Added a regression test proving that a failed training preview cannot be approved
+through a later predict command, including with `--yes`. A declined successful
+artifact now shows both saved predictions and scores when approval is retried.
+Documented uv setup, CLI flags, typed interfaces, method behavior, artifact layout,
+gold provenance, metric definitions, limitations and the lifecycle Mermaid graph
+in the README, preserving the original product notes and user edit.
+
+Validation: 27 tests pass; Ruff, formatting and mypy pass. A separate-process BERT
+reload produced predictions identical to the first run. The live no-thinking
+Gemma run produced valid results for task 1, but four training documents exhausted
+the single output-validation retry. The CLI retained all five documents, saved
+the failures, and refused approval as intended. Response diagnosis and completion
+of the Gemma smoke test remain for the next stage.

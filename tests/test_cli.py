@@ -1,9 +1,13 @@
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from cli import app
+from data import DocumentInput, LabelStudioTaskPrediction, prediction_for
+from methods.dummy import DummyArtifact, DummyMethod
 from tests.conftest import entity
 
 
@@ -158,3 +162,40 @@ def test_unlabeled_inference_has_no_fabricated_metrics(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert json.loads((output / "metrics.json").read_text()) is None
+
+
+def test_failed_training_preview_cannot_be_approved_in_predict_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_predict(
+        self: DummyMethod, artifact: DummyArtifact, inputs: Sequence[DocumentInput]
+    ) -> list[LabelStudioTaskPrediction]:
+        predictions = [prediction_for(document, [], "dummy") for document in inputs]
+        predictions[0]["meta"] = {"extraction_error": "simulated service failure"}
+        return predictions
+
+    monkeypatch.setattr(DummyMethod, "predict", failed_predict)
+    data = dataset(tmp_path / "data.json")
+    artifact = tmp_path / "artifact"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--data",
+            str(data),
+            "--method",
+            "dummy",
+            "--stage",
+            "fit",
+            "--dump",
+            str(artifact),
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 1 and "unapproved" in result.output
+    result = runner.invoke(
+        app,
+        ["--data", str(data), "--stage", "predict", "--load", str(artifact), "--yes"],
+    )
+    assert result.exit_code == 1 and "failed training preview" in result.output
+    assert not json.loads((artifact / "fit.json").read_text())["approved"]
