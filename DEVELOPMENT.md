@@ -223,3 +223,42 @@ Reproducing the exact command with an explicit `n` printed the saved preview and
 approval prompt, then aborted before prediction, as intended. The guide now
 explains that this line follows approval and how to restore stdout in the user's
 terminal. No CLI behavior was changed for this shell issue.
+
+The installation/CLI guides were committed and pushed as `b710eeb` (`docs: add
+installation and CLI guides with offset examples`).
+
+## Method guides — background and implementation rationale (6 October 2026)
+
+Added `docs/methods/README.md` as an overview of the typed method contract,
+different learning signals, runner/evaluator responsibilities, common character
+spans and method-specific artifacts. Separate `bert.md`, `llm.md` and `dummy.md`
+guides explain each implementation from fitting through saved-state reload and
+prediction, with commands, code links, tradeoffs and links to existing tests.
+
+BERT covers the contextual encoder and classifier, BIO targets, loss/optimizer
+responsibilities, frozen versus full fine-tuning, overflow windows, gold
+projection, ignored edge fragments and confidence-based span merging. LLM covers
+demonstration construction, native structured output, quote/occurrence grounding,
+warnings versus document failures, retry boundaries, server dependence and
+stored prompts. Dummy explains why a successful empty prediction is useful for
+testing the lifecycle and differs from an inference failure.
+
+All configuration defaults were read from the current implementations, including
+the CLI-only learning-rate change for full fine-tuning, the BERT stride meaning,
+and LLM's character rather than token budget. Background references use original
+BERT/DistilBERT and few-shot prompting papers and official Hugging Face,
+Pydantic AI and LM Studio docs.
+Mermaid diagrams show the shared lifecycle, BERT training signal and LLM response
+validation. Linked the guides from README, CLI and installation docs, and
+extended the memoir at the end of README. This pass changes documentation only.
+
+Validation: all relative links and code fences pass checks, Bash examples pass
+`bash -n`, Python blocks compile, JSON examples parse, and all documented method
+CLI flags exist. Executing the LLM grounding snippet and its JSON example gives
+the documented PCR/value spans and relation without a server call. Both dummy
+guide commands pass on `grupo1.json` with temporary destinations: interactive
+approval, fitting IDs 1–5, prediction IDs 6–10 and identical predictions after a
+fresh-process reload. The nine focused dummy/BERT/LLM tests pass in 5.24 seconds,
+including the tiny local BERT fit; no pretrained checkpoint download or live LLM
+request was needed. `git diff --check` passes. The user's CLI edits remain
+unstaged and existing run artifacts are untouched.

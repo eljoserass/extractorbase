@@ -46,6 +46,9 @@ things to consider for next:
 Start with the [installation guide](docs/install.md), then use the
 [CLI guide](docs/cli.md) for stages, sample offsets, every flag, approval,
 saved files and troubleshooting.
+The [method guides](docs/methods/README.md) explain the shared contract and how
+[BERT](docs/methods/bert.md), [LLM](docs/methods/llm.md) and
+[dummy](docs/methods/dummy.md) work, including the rationale of the current code.
 
 The working version is a local Python CLI. It reads Label Studio exports, fits an
 extractor on a selected slice, saves and reloads its artifact, shows a training
@@ -156,6 +159,9 @@ An unlabeled slice writes `metrics.json` containing `null`. A slice must be eith
 fully labeled or fully unlabeled.
 
 ## The method contract
+
+For a walkthrough of each algorithm and its saved state, see the
+[method guides](docs/methods/README.md).
 
 `methods/base.py` defines one generic abstract class, `Method[ArtifactT]`:
 
@@ -393,6 +399,8 @@ and `DEVELOPMENT.md`:
 | `092f235` | Grounded LLM output, visible diagnostics, typed manifests and warning/abstention tests. |
 | Final documentation push | Recorded the completed real runs, measured limitations and this memoir. |
 | CLI help follow-up | Added `-h`, tested both help flags, and documented shell stdout diagnosis. |
+| `b710eeb` | Added separate installation and CLI guides, offset examples and hidden approval-prompt troubleshooting. |
+| Method documentation follow-up | Added shared contract and BERT/LLM/dummy guides covering background, implementation choices and saved state. |
 
 The first follow-up concerned apparently silent help and run commands. Both
 rendered correctly in subprocess and PTY checks. A nested interactive bash had
@@ -411,3 +419,11 @@ The documented dummy 5+5 lifecycle was verified against the real export in a
 temporary directory. The CLI guide also explains that the prediction-start line
 comes after approval, including the hidden-prompt symptom caused by redirected
 shell stdout.
+
+The next documentation pass added a shared method overview and separate BERT,
+LLM and dummy guides under `docs/methods/`. They explain the learning signal,
+representation adapters, artifact lifecycle and code choices: token-label loss
+and flat BIO projection for BERT, demonstration prompting and literal-quote
+grounding for LLM, and successful empty predictions for dummy. The guides trace
+the current implementation, link to its tests and primary background sources,
+and distinguish algorithm settings from the options exposed by the CLI.

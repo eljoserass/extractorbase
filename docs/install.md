@@ -174,6 +174,8 @@ Dummy's empty predictions give F1 zero, as expected. Results appear in the
 terminal and in the output directory.
 
 Once that works, follow the [CLI examples](cli.md#examples) for BERT or Gemma.
+The [method guides](methods/README.md) explain how each extractor works and why
+its code is organized that way.
 
 ## Development checks
 

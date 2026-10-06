@@ -41,6 +41,8 @@ Select a stage with `--stage`. The default is `run`.
 The methods are `dummy`, `bert` and `llm`. Dummy predicts empty results without a
 model or server. BERT trains a token classifier. LLM fitting saves a prompt and
 the selected examples as demonstrations; it does not train Gemma's weights.
+The [method guides](methods/README.md) explain the background, implementation
+choices and limitations of each extractor.
 
 Training-preview scores are resubstitution on fitting examples. Held-out scores
 are computed separately after prediction. Predictions receive document IDs and
