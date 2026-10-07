@@ -9,6 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
+from time import perf_counter
 from typing import Literal, cast
 
 import typer
@@ -88,6 +89,9 @@ class PredictionRecord(BaseModel):
     created_at: str
     packages: dict[str, str]
     train_ids: list[DocumentId] = Field(default_factory=list)
+    model_load_seconds: float | None = None
+    prediction_seconds: float | None = None
+    evaluation_seconds: float | None = None
 
 
 def text_hash(text: str) -> str:
@@ -133,6 +137,11 @@ def build_method(
         return cast(Method[object], DummyMethod())
     if name == MethodName.BERT:
         from methods.bert import BertConfig, BertMethod
+
+        logger = logging.getLogger("methods.bert")
+        if not logger.handlers:
+            logger.addHandler(logging.StreamHandler())
+        logger.setLevel(logging.INFO)
 
         return cast(
             Method[object],
@@ -209,7 +218,22 @@ def print_results(
                 str(values.support),
             )
         console.print(labels)
-        console.print("Relation metrics: not computed in this milestone.")
+        if report.overlap_micro is not None:
+            values = report.overlap_micro
+            console.print(
+                f"Label-aware overlap micro: precision={values.precision:.4f} "
+                f"recall={values.recall:.4f} F1={values.f1:.4f} support={values.support}"
+            )
+        if report.strict_macro is not None and report.overlap_macro is not None:
+            console.print(
+                f"Entity macro F1: strict={report.strict_macro.f1:.4f} "
+                f"overlap={report.overlap_macro.f1:.4f} "
+                f"({len(report.macro_labels)} labels with gold support)."
+            )
+        console.print(
+            f"Documents scored: {report.documents}; inference failures: {report.failed_documents}."
+        )
+        console.print("Relation metrics: not computed; these entity scores match the BERT task.")
     else:
         console.print("No gold annotations supplied; predictions saved without metrics.")
 
@@ -352,7 +376,9 @@ def main(
             thinking,
             llm_backend,
         )
+        started = perf_counter()
         artifact = runner.load(load)
+        model_load_seconds = perf_counter() - started
         # All concrete artifacts carry the task definition restored from their manifest.
         spec = getattr(artifact, "task_spec")
         if not isinstance(spec, TaskSpec):
@@ -383,8 +409,12 @@ def main(
         console.print(
             f"Predicting with reloaded {method} on IDs {[document.id for document in inputs]}."
         )
+        started = perf_counter()
         predictions = runner.predict(artifact, inputs)
+        prediction_seconds = perf_counter() - started
+        started = perf_counter()
         metrics = score(predictions, gold) if len(gold) == len(selected) else None
+        evaluation_seconds = perf_counter() - started
         destination = output or load.parent / "evaluation"
         write_json(destination / "predictions.json", predictions)
         write_json(destination / "metrics.json", asdict(metrics) if metrics else None)
@@ -402,6 +432,9 @@ def main(
             reviewer_ids=list(reviewers),
             created_at=datetime.now(timezone.utc).isoformat(),
             packages=package_versions(),
+            model_load_seconds=model_load_seconds,
+            prediction_seconds=prediction_seconds,
+            evaluation_seconds=evaluation_seconds,
         )
         (destination / "config.json").write_text(record.model_dump_json(indent=2))
         print_results(predictions, metrics, "HELD-OUT predictions")
@@ -411,6 +444,18 @@ def main(
         )
         if metrics:
             summary += f"Strict entity micro F1: {metrics.strict_micro.f1:.6f}\n"
+            if metrics.overlap_micro is not None:
+                summary += f"Overlap entity micro F1: {metrics.overlap_micro.f1:.6f}\n"
+            if metrics.strict_macro is not None and metrics.overlap_macro is not None:
+                summary += (
+                    f"Strict entity macro F1: {metrics.strict_macro.f1:.6f}\n"
+                    f"Overlap entity macro F1: {metrics.overlap_macro.f1:.6f}\n"
+                )
+        summary += (
+            f"Model loading: {model_load_seconds:.3f}s\n"
+            f"Prediction: {prediction_seconds:.3f}s\n"
+            f"Evaluation: {evaluation_seconds:.3f}s\n"
+        )
         (destination / "run_summary.txt").write_text(summary)
         console.print(f"Results saved to {destination}.")
         if any(p.get("meta", {}).get("extraction_error") for p in predictions):

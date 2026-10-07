@@ -2,10 +2,12 @@
 
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypedDict
 
 from nervaluate import Evaluator
+from nervaluate.entities import Entity, EvaluationResult
+from nervaluate.strategies import EntityTypeEvaluation, StrictEvaluation
 
 from data import LabelStudioTaskPrediction, ResultItem, TrainingExample
 
@@ -25,6 +27,35 @@ class MetricsReport:
     documents: int
     failed_documents: int = 0
     relations: PRFScore | None = None  # Parsed and retained; relation scoring comes later.
+    overlap_micro: PRFScore | None = None
+    strict_macro: PRFScore | None = None
+    overlap_macro: PRFScore | None = None
+    per_label_overlap: dict[str, PRFScore] = field(default_factory=dict)
+    macro_labels: tuple[str, ...] = ()  # Only labels with gold support in this test set.
+
+
+class LabelOverlapEvaluation(EntityTypeEvaluation):
+    """Full credit for any character overlap with the same label, one match per entity."""
+
+    def _has_sufficient_overlap(self, pred: Entity, true: Entity) -> bool:
+        # Default nervaluate uses >=1% overlap and lets wrong labels consume gold spans.
+        return pred.label == true.label and pred.start <= true.end and pred.end >= true.start
+
+
+def _prf(result: EvaluationResult) -> PRFScore:
+    return PRFScore(result.precision, result.recall, result.f1, result.possible)
+
+
+def _macro(per_label: dict[str, PRFScore], labels: tuple[str, ...]) -> PRFScore:
+    if not labels:
+        return PRFScore(0.0, 0.0, 0.0, 0)
+    values = [per_label[label] for label in labels]
+    return PRFScore(
+        sum(value.precision for value in values) / len(values),
+        sum(value.recall for value in values) / len(values),
+        sum(value.f1 for value in values) / len(values),
+        sum(value.support for value in values),
+    )
 
 
 class EvalEntity(TypedDict):
@@ -77,21 +108,34 @@ def score(
     tags = sorted({entity["label"] for document in [*true, *pred] for entity in document})
     failures = sum(bool(p.get("meta", {}).get("extraction_error")) for p in predictions)
     if not tags:
-        return MetricsReport(PRFScore(0.0, 0.0, 0.0, 0), {}, len(gold), failures)
-    results = Evaluator(true, pred, tags=tags, loader="dict").evaluate()
-    overall = results["overall"]["strict"]
-    per_label = {
-        label: PRFScore(
-            value["strict"].precision,
-            value["strict"].recall,
-            value["strict"].f1,
-            value["strict"].possible,
+        empty = PRFScore(0.0, 0.0, 0.0, 0)
+        return MetricsReport(
+            empty,
+            {},
+            len(gold),
+            failures,
+            overlap_micro=empty,
+            strict_macro=empty,
+            overlap_macro=empty,
         )
-        for label, value in sorted(results["entities"].items())
+    evaluator = Evaluator(true, pred, tags=tags, loader="dict")
+    evaluator.strategies = {"strict": StrictEvaluation(), "overlap": LabelOverlapEvaluation()}
+    results = evaluator.evaluate()
+    per_label = {
+        label: _prf(value["strict"]) for label, value in sorted(results["entities"].items())
     }
+    per_label_overlap = {
+        label: _prf(value["overlap"]) for label, value in sorted(results["entities"].items())
+    }
+    macro_labels = tuple(label for label, value in per_label.items() if value.support > 0)
     return MetricsReport(
-        PRFScore(overall.precision, overall.recall, overall.f1, overall.possible),
+        _prf(results["overall"]["strict"]),
         per_label,
         len(gold),
         failures,
+        overlap_micro=_prf(results["overall"]["overlap"]),
+        strict_macro=_macro(per_label, macro_labels),
+        overlap_macro=_macro(per_label_overlap, macro_labels),
+        per_label_overlap=per_label_overlap,
+        macro_labels=macro_labels,
     )

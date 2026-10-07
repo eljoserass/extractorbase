@@ -350,3 +350,33 @@ code fences, relative links and the documented `--llm-backend` help flag.
 Private dataset analysis and preparation are stored only in ignored local
 directories. Neither public increment contains private exports, task schema or
 model artifacts. The user's existing CLI whitespace remains unstaged.
+
+## Full inference evaluation — scoring and visibility (7 October 2026)
+
+The requested Mac run reuses the saved BERT artifact without training or
+altering its encoder, classifier, tokenizer or decoding. Checked the Mac fit
+records before choosing the test set: it excludes every BERT fitting note and
+LLM demonstration. Private split manifests store source hashes, ordered IDs
+and selected clinician annotations; no private files enter public commits.
+
+Extended nervaluate scoring with full-credit, same-label character overlap,
+per-label scores and macro averages. A small strategy subclass removes its
+default one-percent overlap threshold and prevents wrong labels from
+consuming gold matches. Matching is one-to-one: exact predictions first, then
+emitted order and closest same-label boundaries. Macro uses gold-supported
+labels, saved in the report. The paper does not fully specify its ordering or
+macro universe; this single holdout and the existing five-note model also
+differ from its cross-validation and fine-tuning.
+
+Added explicit BERT loading/progress messages and loading, prediction and
+scoring timings. Predictions and old artifacts remain compatible. New scoring
+cases cover positive overlap, wrong labels, duplicate predictions, exclusive
+ends, macro averaging, failed-document denominators and empty entities. The
+evaluation guide explains the shared holdout and SSH/tmux workflow.
+
+Validation before transfer: all 46 tests pass, including the existing tiny-model
+fit/save/reload and CLI lifecycle tests. Ruff and mypy pass for the modified
+source. The mocked asynchronous HTTP tests required running outside the
+network-restricted sandbox; BERT and CLI checks passed inside it. Verified that
+the common heldout texts do not duplicate reserved fitting/demo texts. The Mac
+checkout was clean and at the previous published commit before transfer.

@@ -1,9 +1,11 @@
 """A small CPU token-classification baseline; BIO is an internal adapter only."""
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter
 from typing import Literal
 
 import torch
@@ -29,6 +31,8 @@ from data import (
     prediction_for,
 )
 from methods.base import Method, Scorer
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -187,6 +191,7 @@ class BertMethod(Method[BertArtifact]):
             *[f"{prefix}-{label}" for label in task_spec.entity_labels for prefix in ("B", "I")],
         ]
         label_to_id = {label: index for index, label in enumerate(tags)}
+        logger.info("Loading pretrained encoder from %s.", config.checkpoint)
         tokenizer = AutoTokenizer.from_pretrained(config.checkpoint, use_fast=True)
         if not isinstance(tokenizer, PreTrainedTokenizerFast):
             raise ValueError("BERT needs a fast tokenizer to preserve character offsets.")
@@ -202,6 +207,12 @@ class BertMethod(Method[BertArtifact]):
         if config.freeze_encoder:
             for parameter in model.base_model.parameters():
                 parameter.requires_grad = False
+        logger.info(
+            "Fitting on %d documents; encoder frozen=%s, BIO tags=%d.",
+            len(train_examples),
+            config.freeze_encoder,
+            len(tags),
+        )
         windows: list[dict[str, list[int]]] = []
         notes: set[str] = set()
         for example in train_examples:
@@ -257,6 +268,7 @@ class BertMethod(Method[BertArtifact]):
         (directory / "method.json").write_text(manifest.model_dump_json(indent=2))
 
     def load(self, directory: Path) -> BertArtifact:
+        logger.info("Loading saved BERT weights from %s (local files only).", directory / "model")
         manifest = BertManifest.model_validate_json((directory / "method.json").read_text())
         model = AutoModelForTokenClassification.from_pretrained(
             directory / "model", local_files_only=True
@@ -265,6 +277,7 @@ class BertMethod(Method[BertArtifact]):
         if not isinstance(tokenizer, PreTrainedTokenizerFast):
             raise ValueError("Saved BERT tokenizer is not a fast tokenizer.")
         model.eval()
+        logger.info("BERT weights loaded: %d parameters.", model.num_parameters())
         return BertArtifact(
             model, tokenizer, manifest.task_spec, manifest.config, manifest.fit_notes
         )
@@ -277,7 +290,11 @@ class BertMethod(Method[BertArtifact]):
         torch.set_num_threads(artifact.config.cpu_threads)
         artifact.model.cpu().eval()
         predictions: list[LabelStudioTaskPrediction] = []
-        for document in inputs:
+        started = perf_counter()
+        logger.info(
+            "Starting BERT inference on %d documents on CPU; no weight updates.", len(inputs)
+        )
+        for position, document in enumerate(inputs, start=1):
             encoded = artifact.tokenizer(
                 document.text,
                 return_offsets_mapping=True,
@@ -331,4 +348,11 @@ class BertMethod(Method[BertArtifact]):
                 )
             ]
             predictions.append(prediction_for(document, results, "bert"))
+            if position == 1 or position % 25 == 0 or position == len(inputs):
+                logger.info(
+                    "BERT prediction: %d/%d documents complete (%.1fs).",
+                    position,
+                    len(inputs),
+                    perf_counter() - started,
+                )
         return predictions
