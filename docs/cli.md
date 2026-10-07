@@ -227,9 +227,13 @@ results. API or unrepaired response failures save an empty result with
 exit. Warnings are saved as `meta.extraction_warnings`.
 
 The primary score is strict entity micro precision/recall/F1: start, end and label
-must match. Per-label scores are printed too. Relation predictions are retained,
-but relation metrics are currently uncomputed. See the [README](../README.md)
-for method limitations and dataset findings.
+must match. Reports also contain full-credit, same-label character overlap,
+strict/overlap macro averages and both sets of per-label scores. Macro uses the
+labels with gold support; the report saves that label set. `config.json` records
+model-loading, prediction and scoring seconds. BERT logs loading and progress
+while predicting. Relation metrics remain uncomputed. See the
+[evaluation guide](evaluation.md) for matching policies, reusable heldouts and
+remote runs, and the [README](../README.md) for method limitations.
 
 ## Flag reference
 

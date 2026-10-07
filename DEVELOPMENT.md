@@ -380,3 +380,39 @@ source. The mocked asynchronous HTTP tests required running outside the
 network-restricted sandbox; BERT and CLI checks passed inside it. Verified that
 the common heldout texts do not duplicate reserved fitting/demo texts. The Mac
 checkout was clean and at the previous published commit before transfer.
+
+## Full inference evaluation — Mac run and guide (7 October 2026)
+
+The implementation increment was pushed as `1bb6c5c`. Transferred that exact
+revision through a Git bundle, verified its prerequisite commit and fast-forwarded
+the clean Mac checkout without requiring GitHub credentials there. All 46 tests
+also passed on the Mac. Started prediction-only inference inside tmux, with
+`caffeinate -i` preventing idle sleep while the process ran. No packages or model
+weights were downloaded, and fitting was never called.
+
+The full frozen holdout completed without inference failures. Verified every
+ordered prediction ID and selected doctor annotation against the private split
+manifest. Independently reproduced exact micro and per-label scores with
+per-document span/label multisets. All artifact files, including the weights,
+have identical before/after checksums. Copied the result files and provenance
+back into ignored local runs; the private report contains scores, timings and
+limitations. It evaluates the existing classifier, rather than retraining BETO
+or recreating the paper's cross-validation. No LLM inference was launched.
+
+Updated CLI and method guides, the README metric description and final memoir
+to describe overlap/macro scoring, timing and saved-weight inference. Checked
+documentation links, code fences and Bash examples. Preserved the user's README
+notes, installation example and CLI whitespace edits outside these commits.
+
+The user then requested a small local replay to diagnose the poor model
+output, preserving the no-training constraint. Replayed three heldout notes
+with the original local artifact and compared three training notes with their
+saved predictions. Every encoder tensor matches the cached pretrained weights;
+the classifier loads with no missing keys, and its weights differ from seed-42
+initialization. Tokenizer outputs and label mappings match their originals.
+Feeding gold-derived tags through the decoder recovers nearly all entities;
+the actual classifier remains weak. This isolates classifier quality as the
+main observed issue without changing weights or masking the bad predictions.
+Documented the difference between supervised BERT fitting and LLM prompting,
+what encoder freezing does, and why base BETO alone does not supply a medical
+classifier. All diagnostic data and outputs remain in ignored runs.

@@ -113,12 +113,17 @@ BERT's BIO tags and LLM's quote/occurrence objects are internal adapters. Neithe
 becomes the harness's stored prediction format. This keeps the evaluator from
 depending on how a particular model represents an entity.
 
-[evaluator.py](../../evaluator.py) uses nervaluate for strict entity micro and
-per-label precision, recall and F1. A strict match requires the same label, start
-and end. The adapter converts exclusive ends to the library's inclusive ends and
+[evaluator.py](../../evaluator.py) uses nervaluate for strict and label-aware
+overlap micro, per-label and macro scores. A strict match requires the same
+label, start and end. The adapter converts exclusive ends to inclusive ends and
 orders available exact matches first so overlap matching does not consume them.
 Relations are saved but are not scored yet. Failed LLM documents remain in the
 evaluation rather than disappearing from its denominator.
+
+Overlap requires the same label and any positive character overlap, with full
+credit and one-to-one matching. Macro averages use labels with gold support.
+See the [evaluation guide](../evaluation.md) for the exact matching policy and
+paper comparison limits.
 
 The examples in these guides use the first five documents for fitting and the
 next five for prediction. They exercise the lifecycle; use larger, deliberately

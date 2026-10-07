@@ -186,8 +186,39 @@ artifact/
 the tag mapping. A fresh process can predict without downloading the original
 checkpoint again.
 
+`--stage predict --load PATH` follows this loading path without calling `fit`.
+It uses the saved encoder and classifier, even if the classifier was originally
+trained on only a small smoke-test sample. The CLI logs the local weight path,
+parameter count and inference progress; evaluation records include timings.
+Use a frozen test set as described in the [evaluation guide](../evaluation.md).
+
 The CLI separately adds `fit.json`, training-preview predictions and training
 metrics. Those files handle provenance and approval; they are not model weights.
+
+## What fitting means for a tiny example set
+
+BERT fitting is supervised learning, rather than building a few-shot prompt.
+The pretrained encoder produces a contextual representation for each token.
+Our new classifier maps those representations to the task's BIO labels; its
+weights start randomly because the base language checkpoint does not contain
+this medical classifier. Label names in the mapping are identifiers, not
+instructions that the encoder interprets.
+
+The default `--freeze-encoder` keeps the language encoder unchanged and updates
+only the classifier through token-label cross-entropy and AdamW. Ten notes
+therefore do not overwrite the encoder, but can supply too little coverage to
+learn the desired entity types or generalize. `--full-finetune` explicitly
+allows updating the encoder as well. Saved-weight prediction changes neither.
+
+Context comes from the note around each token and the annotated examples.
+This adapter cannot accept an instruction like a chat LLM, interpret schema
+descriptions, or learn the task merely by placing demonstrations in a prompt.
+BETO provides Spanish language representations, but its
+[base checkpoint](https://huggingface.co/dccuchile/bert-base-spanish-wwm-cased)
+is a masked-language model. Changing the encoder name does not provide an
+already trained classifier for a new label vocabulary. Inference without
+additional training needs an existing compatible classifier, or a different
+extraction method built around frozen representations.
 
 ## Try the fit/reload/predict flow
 

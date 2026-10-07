@@ -283,10 +283,11 @@ greedy overlap matching cannot consume a later exact match. Metric computation
 itself stays in nervaluate. Entity IDs do not need to match gold IDs.
 
 Relations are loaded, retained and predicted by the LLM, but relation scores are
-explicitly `null`. Paper-specific overlap scoring is also deferred; nervaluate's
-partial metric is not presented as the paper's overlap metric. Improving BERT
-quality, adding relation/overlap scoring, adding a development split, and trying
-prompt optimization or agent-generated spaCy rules are subsequent experiments.
+explicitly `null`. Reports also include full-credit, same-label character
+overlap and strict/overlap macro averages over labels with gold support. See the
+[evaluation guide](docs/evaluation.md) for the matching and macro policies and
+paper comparison limits. Improving BERT quality, adding relation scoring,
+adding a development split, and trying prompt optimization or agent-generated spaCy rules are subsequent experiments.
 `methods/agentic_spacy.py` retains the original design notes.
 
 ## Gold selection and dataset findings
@@ -480,3 +481,29 @@ lifecycle. Apple Silicon wheel selection passes a macOS target dry run. Actual
 Metal generation remains to be verified on the Mac with its existing model.
 The changes were pushed in separate implementation and documentation increments;
 private inputs, schemas and artifacts remain local.
+
+The next evaluation increment reuses saved BERT weights without further
+training. Explicit loading/progress messages and inference timings make runs
+visible. Entity reports now include strict and full-credit label-aware overlap
+micro scores, per-label scores and macro averages over gold-supported labels.
+Scoring still uses nervaluate, with a small adapter for any positive overlap
+and same-label matching. Tests cover matching edge cases, macro policy and
+retained inference failures. The [evaluation guide](docs/evaluation.md)
+documents the shared holdout, saved results, comparison limits and `tmux`.
+Private split manifests and clinical results remain in ignored directories.
+
+The real Mac inference run completed on the frozen heldout notes with no
+failures or additional training. Saved artifact checksums were identical before
+and after, and independent span/label multiset counts reproduced the strict
+scores. Both Linux and Mac passed all 46 tests. The code was pushed here and
+transferred as a verified Git bundle, keeping the Mac checkout on the same
+committed revision without GitHub credentials. Scores, predictions, split
+details and run provenance are saved privately under `data/` and `runs/`.
+
+A small local replay checked the poor BERT predictions in detail. Encoder
+weights, tokenizer, label mapping and predictions survive save/reload correctly;
+feeding correct tags through the decoder reconstructs entities with the known
+BIO projection limits. The saved task classifier remains weak. The method guide
+now explains that fitting updates a new supervised classifier while freezing
+the encoder by default, and that BERT/BETO do not receive the LLM's few-shot
+instruction prompt. The local diagnosis performed no new training.
