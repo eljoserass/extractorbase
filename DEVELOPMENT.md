@@ -512,9 +512,25 @@ span head. It then explicitly returns to one entity type for the existing
 three-class training/loss demonstration.
 
 Updated the embedded reading guide and animation documentation, including why
-our inference can take argmax directly on logits without first computing
-softmax. All examples remain synthetic. A complete accelerated preview was
+argmax directly on logits would choose the same class. The final code review
+confirmed our implementation uses softmax and max to retain confidence as well
+as the selected tag; the guide documents this distinction. All examples remain
+synthetic. A complete accelerated preview was
 rendered and its class expansion, matrix and span reconstruction were visually
 inspected. Adjusted heading colors and moved the shared weights label away
 from the input paths. Ruff and Python compilation pass. The full-resolution
 render and its validation are recorded in the next increment.
+
+## Manim classifier head — final render verification (8 October 2026)
+
+Implementation and first documentation increment: `f9c4ba7`. Rendered the
+updated complete lesson as H.264, 1920×1080 at 30 fps: 9,340 frames, 311.32
+seconds (5:11). Chapter 6 now runs from 1:05 to 2:12. Inspected final-resolution
+frames covering class expansion, the shared head/probability matrix, BIO span
+reconstruction and the transition back to the one-type training diagram.
+Confirmed twelve ordered chapter timestamps and decoded the entire MP4 with
+FFmpeg without errors. Ruff and Python compilation pass. Refreshed the
+exported reading guide after clarifying that the real predictor uses softmax
+and max to preserve confidences; this prose clarification does not change the
+animation. Added the completed work to the README memoir. Video and inspection
+frames remain ignored local artifacts; unrelated user edits are preserved.

@@ -536,3 +536,13 @@ running uv. An outdated Freetype package URL returned 404 and prevented the
 native installation, so the subsequent ManimPango build lacked pkg-config and
 cairo.h. The guide now distinguishes the temporary rendering environment from
 system dependencies that require installation in the user's terminal.
+
+The classifier-head chapter now animates why N entity types require 2N+1
+classes: one shared O and a B/I pair per type. Its five class labels become
+columns in a per-token probability matrix, with one shared W,b transformation
+and an argmax choice for every contextual token vector. The chosen BIO tags
+then move to tokenizer offsets and assemble a character span, making explicit
+that this implementation has no separate learned start/end head. The lesson
+returns to one type before explaining its three-class training example. The
+reading guide and animation documentation describe the same sequence; all
+examples remain invented and no extractor weights or private data were used.

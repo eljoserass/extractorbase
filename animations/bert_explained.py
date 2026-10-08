@@ -103,8 +103,9 @@ fusión de ventanas ni prompt literal.
    N es el número de tipos de entidad: B e I para cada tipo, más un único O.
    Dos tipos generan cinco clases, no seis. La misma W y el mismo b se aplican
    a todos los tokens en paralelo. Softmax normaliza cada fila; argmax elige
-   un tag. Nuestro código puede aplicar argmax directamente a los logits,
-   porque softmax no cambia cuál es el mayor.
+   un tag. Argmax sobre logits elegiría el mismo tag: softmax no cambia cuál
+   es el mayor. Nuestro código usa softmax y max para obtener también la
+   confianza con la que resuelve candidatos solapados entre ventanas.
    El vídeo sigue dolor/lum/##bar/hoy hasta B-H/I-H/I-H/O. El código agrupa
    los tres primeros tokens y usa sus offsets: start=6, end=18 (exclusivo),
    tipo=HALLAZGO. No hay una segunda cabeza aprendida para start/end;

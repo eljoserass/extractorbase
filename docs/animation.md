@@ -21,9 +21,9 @@ Los tags de «dolor / lum / ##bar / hoy» se desplazan después hasta sus offset
 El código agrupa `B-H / I-H / I-H` y reconstruye `HALLAZGO [6, 18)`;
 `O` queda fuera. Los límites vienen del tokenizer: no los predice una segunda
 cabeza. Para explicar la loss, la animación vuelve explícitamente al ejemplo
-de un tipo y tres clases. Las probabilidades son ilustrativas; en el harness,
-argmax se aplica a los logits directamente, con el mismo resultado que tras
-softmax.
+de un tipo y tres clases. Las probabilidades son ilustrativas. El harness usa
+softmax y max para obtener tanto el tag elegido como su confianza; argmax
+sobre los logits elegiría el mismo tag, pero no daría esa probabilidad.
 
 ## Instalar las dependencias gráficas
 
