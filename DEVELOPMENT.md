@@ -416,3 +416,37 @@ main observed issue without changing weights or masking the bad predictions.
 Documented the difference between supervised BERT fitting and LLM prompting,
 what encoder freezing does, and why base BETO alone does not supply a medical
 classifier. All diagnostic data and outputs remain in ignored runs.
+
+## Manim explanation — animated model and data flow (8 October 2026)
+
+Added a standalone Spanish Manim lesson at `animations/bert_explained.py`,
+with PEP 723 dependencies pinned to Manim 0.21.0. It runs without the harness,
+private exports, private schema, model weights, external assets or LaTeX.
+Its examples, vector coordinates, attention weights and probability changes
+are synthetic. Rendering draws a simulation; it never trains or executes an
+extractor. The paper protocol comes from the supplied manuscript, especially
+sections 3.6 and 3.8, with missing fold IDs/seed and implementation details
+explicitly distinguished from what it reports.
+
+The user's visual direction led to a continuous explanation rather than a
+slide sequence: text becomes subwords and BIO targets, tokens become vector
+coordinates, particles show weighted attention and backward gradients, and
+probability bars change as the illustrative loss falls. Twelve encoder layers
+feed a shared classifier. The scene distinguishes the frozen-encoder default
+from full fine-tuning, then physically moves 750 note points through five
+independent 600/150 splits and pools their heldout predictions. Changing span
+boundaries demonstrates strict versus full-credit overlap. A final LLM flow
+distinguishes the paper's zero-shot prompt from our saved demonstrations.
+
+The command supports quality, frame rate, timing scale and output directory;
+it writes an MP4, a reading guide and chapter timestamps. Progress goes to
+stderr. All rendered output stays under ignored `runs/`. Native dependencies
+were downloaded/extracted into `/tmp` and Manim installed in an isolated
+environment, leaving the system installation and BERT/LLM environment intact.
+
+Validation for this increment: Ruff and compilation pass; complete low-quality
+renders cover every scene, and chapter frames were inspected for alignment,
+readability and object cleanup. The documented `uv run --script` entry point
+and its isolated dependency environment were checked with cached packages.
+The final 1080p render and the installation guide follow in the next increment.
+No private data, schema, model or rendered result is part of this commit.
