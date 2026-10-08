@@ -10,7 +10,10 @@ Render with uv (isolated script dependencies; no extractor installation needed):
 
 Native prerequisites:
     macOS: brew install cairo pango pkg-config
-    Debian/Ubuntu: sudo apt install build-essential pkg-config libcairo2-dev libpango1.0-dev
+    Debian/Ubuntu:
+        sudo apt update
+        sudo apt install build-essential python3-dev pkg-config libcairo2-dev libpango1.0-dev
+        pkg-config --modversion cairo pangocairo
 
 No LaTeX, dataset, schema, model downloads or external assets are used. All
 examples and probabilities are invented. This draws an explanation; it does

@@ -21,14 +21,24 @@ brew install cairo pango pkg-config
 En Debian o Ubuntu:
 
 ```bash
+sudo apt update
 sudo apt install build-essential python3-dev pkg-config libcairo2-dev libpango1.0-dev
+pkg-config --modversion cairo pangocairo
 ```
+
+Si APT devuelve un `404` al descargar una dependencia, actualiza los índices
+con `sudo apt update` y repite la instalación. La instalación debe terminar
+correctamente antes de ejecutar `uv`: si faltan `pkg-config` o `cairo.h`,
+ManimPango no puede compilar. El último comando comprueba que Cairo y Pango
+están disponibles para el compilador.
 
 El script usa `Text`, sin fórmulas LaTeX ni assets externos. `uv run --script`
 instala Manim 0.21.0 en un entorno de script separado, sin añadir paquetes al
 entorno BERT/LLM del proyecto. La primera ejecución puede compilar dependencias
 gráficas. El [manual de instalación de Manim](https://docs.manim.community/en/stable/installation/uv.html)
 detalla las dependencias de cada plataforma.
+El render verificado en este proyecto usó dependencias en un entorno temporal;
+eso no instala las bibliotecas del sistema para otros comandos o máquinas.
 
 ## Renderizar
 

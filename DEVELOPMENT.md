@@ -479,3 +479,21 @@ reading notes and timestamps remain in ignored `runs/animations/`.
 The user's existing README note, installation example and CLI whitespace
 changes are preserved and excluded from these commits. No extractor code,
 dataset, private schema or model weights changed, and no fitting was run.
+
+## Manim installation — stale APT indexes (8 October 2026)
+
+The user encountered a Freetype package 404 during native dependency
+installation, followed by ManimPango compilation failures for missing
+pkg-config and cairo.h. The Linux guide had omitted the initial APT index
+refresh. Added `sudo apt update` before installing dependencies and
+`pkg-config --modversion cairo pangocairo` to check the compiler's view of
+both libraries. The standalone script header carries the same sequence.
+The guide also clarifies that the successful render used temporary native
+dependencies, which do not populate the user's normal system installation.
+
+Confirmed the native headers/tool are still absent here; sudo requires
+interactive authentication. The system installation must therefore be run
+from the user's terminal. Documentation Bash snippets, Ruff and Python
+compilation were checked. The animation behavior is unchanged, so no repeat
+render or extractor tests are needed. Preserved unrelated user changes and
+appended the installation correction to the README memoir.

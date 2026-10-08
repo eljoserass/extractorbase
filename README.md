@@ -529,3 +529,10 @@ an embedded reading guide exported alongside it. Native libraries and Python
 dependencies were prepared in an isolated temporary environment. No model
 weights were changed. Code and documentation were pushed in separate increments;
 videos and intermediate files remain in ignored local runs.
+
+A follow-up corrected the Linux animation setup: refresh APT package indexes
+before installing Cairo/Pango headers, then verify them with pkg-config before
+running uv. An outdated Freetype package URL returned 404 and prevented the
+native installation, so the subsequent ManimPango build lacked pkg-config and
+cairo.h. The guide now distinguishes the temporary rendering environment from
+system dependencies that require installation in the user's terminal.
