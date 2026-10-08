@@ -10,6 +10,21 @@ puntos representan notas que se desplazan entre train y test. Las cinco salidas
 test terminan en un conjunto de predicciones out-of-fold. La evaluación cambia
 las fronteras de un span para mostrar strict y overlap.
 
+El capítulo 6 desarrolla la cabeza de clasificación: un tipo aporta B e I,
+el segundo añade otros dos tags y O permanece compartido. Así aparecen las
+`2N + 1` clases (cinco para dos tipos). Las clases se transforman en columnas
+de una tabla: cada token tiene su vector contextual, la misma cabeza `W, b`
+y su propia distribución softmax. Las filas se calculan en paralelo y argmax
+selecciona un tag por fila.
+
+Los tags de «dolor / lum / ##bar / hoy» se desplazan después hasta sus offsets.
+El código agrupa `B-H / I-H / I-H` y reconstruye `HALLAZGO [6, 18)`;
+`O` queda fuera. Los límites vienen del tokenizer: no los predice una segunda
+cabeza. Para explicar la loss, la animación vuelve explícitamente al ejemplo
+de un tipo y tres clases. Las probabilidades son ilustrativas; en el harness,
+argmax se aplica a los logits directamente, con el mismo resultado que tras
+softmax.
+
 ## Instalar las dependencias gráficas
 
 Con `uv` instalado, prepara Cairo y Pango. En el Mac:

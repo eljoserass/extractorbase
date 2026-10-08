@@ -99,8 +99,16 @@ fusión de ventanas ni prompt literal.
 3. **Arquitectura.** BETO es un encoder BERT-base de 12 capas y 768 dimensiones
    por token. Self-attention combina el contexto disponible de la ventana, en
    ambas direcciones. Una cabeza de clasificación compartida aplica una
-   transformación a cada vector contextual y produce logits para 2K+1 tags.
-   Softmax da probabilidades; argmax elige un tag. Se reconstruyen entidades.
+   transformación a cada vector contextual y produce logits para 2N+1 tags.
+   N es el número de tipos de entidad: B e I para cada tipo, más un único O.
+   Dos tipos generan cinco clases, no seis. La misma W y el mismo b se aplican
+   a todos los tokens en paralelo. Softmax normaliza cada fila; argmax elige
+   un tag. Nuestro código puede aplicar argmax directamente a los logits,
+   porque softmax no cambia cuál es el mayor.
+   El vídeo sigue dolor/lum/##bar/hoy hasta B-H/I-H/I-H/O. El código agrupa
+   los tres primeros tokens y usa sus offsets: start=6, end=18 (exclusivo),
+   tipo=HALLAZGO. No hay una segunda cabeza aprendida para start/end;
+   esos límites vienen del tokenizer y el tipo viene de los tags seleccionados.
    La arquitectura dibujada es BETO: nuestro checkpoint original es DistilBERT
    multilingüe y tiene seis capas, aunque conserva esta misma idea de encoder
    más clasificador. No estamos dibujando una arquitectura generativa de LLM.
@@ -545,9 +553,226 @@ class BertSinMisterio(Scene):
             run_time=1.5,
         )
 
+    def tags_and_spans(self) -> None:
+        """Expand the label space, classify subwords, then recover character spans."""
+        self.play(FadeOut(self.h), FadeOut(self.encoder_icon))
+        count = text("N = 1 tipo de entidad", 30, GOLD).move_to(UP * 2.3)
+        finding = text("HALLAZGO", 28, GOLD).move_to(LEFT * 1.2 + UP * 1.25)
+        outside = text("O", 34, MUTED).move_to(LEFT * 5 + DOWN * 0.3)
+        begin = text("B-HALLAZGO", 25, GOLD).move_to(LEFT * 2.5 + DOWN * 0.3)
+        inside = text("I-HALLAZGO", 25, GOLD).move_to(RIGHT * 0.2 + DOWN * 0.3)
+        branches = VGroup(
+            Arrow(finding.get_bottom(), begin.get_top(), color=GOLD, buff=0.15),
+            Arrow(finding.get_bottom(), inside.get_top(), color=GOLD, buff=0.15),
+        )
+        formula = text("1 + 2 × 1 = 3 clases", 34, TEST).move_to(DOWN * 1.8)
+        self.say(
+            "N cuenta tipos de entidad. Cada tipo aporta B e I; O significa fuera de toda entidad."
+        )
+        self.play(FadeIn(count), FadeIn(finding), FadeIn(outside))
+        self.play(
+            Create(branches), TransformFromCopy(finding, begin), TransformFromCopy(finding, inside)
+        )
+        self.play(FadeIn(formula))
+        self.hold(3)
+
+        medicine = text("MEDICAMENTO", 26, GRADIENT).move_to(RIGHT * 4 + UP * 1.25)
+        med_begin = text("B-MEDICAMENTO", 20, GRADIENT).move_to(RIGHT * 2.7 + DOWN * 0.3)
+        med_inside = text("I-MEDICAMENTO", 20, GRADIENT).move_to(RIGHT * 5.2 + DOWN * 0.3)
+        med_branches = VGroup(
+            Arrow(medicine.get_bottom(), med_begin.get_top(), color=GRADIENT, buff=0.15),
+            Arrow(medicine.get_bottom(), med_inside.get_top(), color=GRADIENT, buff=0.15),
+        )
+        self.play(
+            Transform(count, text("N = 2 tipos de entidad", 30, GOLD).move_to(count)),
+            FadeIn(medicine),
+        )
+        self.play(
+            Create(med_branches),
+            TransformFromCopy(medicine, med_begin),
+            TransformFromCopy(medicine, med_inside),
+            Transform(formula, text("1 + 2 × 2 = 5 clases", 34, TEST).move_to(formula)),
+            Indicate(outside),
+        )
+        self.say("O es una sola clase compartida: no existe un O diferente por tipo.", hold=4)
+        self.play(Transform(formula, text("N tipos → 2N + 1 clases", 34, TEST).move_to(formula)))
+        self.hold(3)
+
+        # Keep the five classes visible while their layout becomes a probability matrix.
+        class_labels = VGroup(outside, begin, inside, med_begin, med_inside)
+        short_tags = ["O", "B-H", "I-H", "B-M", "I-M"]
+        class_colors = [MUTED, GOLD, GOLD, GRADIENT, GRADIENT]
+        headings = [
+            text(tag, 23, color).move_to([-0.8 + 1.3 * index, 1.35, 0])
+            for index, (tag, color) in enumerate(zip(short_tags, class_colors))
+        ]
+        self.play(
+            *(Transform(label, heading) for label, heading in zip(class_labels, headings)),
+            FadeOut(finding),
+            FadeOut(medicine),
+            FadeOut(branches),
+            FadeOut(med_branches),
+            FadeOut(count),
+            FadeOut(formula),
+        )
+        shared = RoundedRectangle(width=1.25, height=3.2, corner_radius=0.2, color=TRAIN).move_to(
+            LEFT * 3
+        )
+        weights = text("W, b", 27, TRAIN).move_to(LEFT * 3 + UP * 1.1)
+        shared_label = text("Una misma cabeza: zᵢ = W·hᵢ + b", 29, TRAIN).move_to(UP * 2.4)
+        probability_label = text("softmax por fila → argmax", 23, MUTED).move_to(
+            RIGHT * 2.2 + UP * 1.95
+        )
+        tokens = VGroup(
+            *(
+                text(word, 25).move_to([-5.55, 0.55 - i * 0.65, 0])
+                for i, word in enumerate(["dolor", "lum", "##bar", "hoy"])
+            )
+        )
+        vectors = VGroup(
+            *(
+                vector([0.2 + i * 0.15, -0.5, 0.8 - i * 0.1, 0.3, -0.2, 0.6])
+                .scale(0.32)
+                .move_to([-4.35, token.get_y(), 0])
+                for i, token in enumerate(tokens)
+            )
+        )
+        routes = VGroup(
+            *(
+                Line(v.get_right(), [-1.65, v.get_y(), 0], color=TRAIN, stroke_opacity=0.45)
+                for v in vectors
+            )
+        )
+        self.say("H = HALLAZGO; M = MEDICAMENTO. Cada fila corresponde a un token contextualizado.")
+        self.play(
+            FadeIn(tokens),
+            FadeIn(vectors),
+            Create(shared),
+            FadeIn(weights),
+            FadeIn(shared_label),
+            FadeIn(probability_label),
+            Create(routes),
+        )
+        self.flow(routes)
+        probabilities = [
+            [0.04, 0.88, 0.04, 0.02, 0.02],
+            [0.03, 0.04, 0.89, 0.02, 0.02],
+            [0.02, 0.03, 0.91, 0.02, 0.02],
+            [0.92, 0.02, 0.02, 0.02, 0.02],
+        ]
+        cells = VGroup()
+        winners = VGroup()
+        selections = VGroup()
+        for row, values in enumerate(probabilities):
+            winner = values.index(max(values))
+            for column, probability in enumerate(values):
+                cell = VGroup(
+                    Rectangle(
+                        width=1.03,
+                        height=0.48,
+                        stroke_width=0,
+                        fill_color=GOLD,
+                        fill_opacity=probability * 0.6,
+                    ),
+                    text(f"{probability:.2f}", 22),
+                ).move_to([-0.8 + 1.3 * column, 0.55 - row * 0.65, 0])
+                cells.add(cell)
+                if column == winner:
+                    selections.add(
+                        Rectangle(width=1.09, height=0.54, color=TEST, stroke_width=2).move_to(cell)
+                    )
+            winners.add(text(short_tags[winner], 23, GOLD).move_to([5.7, 0.55 - row * 0.65, 0]))
+        self.play(LaggedStart(*(FadeIn(cell) for cell in cells), lag_ratio=0.025), run_time=2)
+        self.say(
+            "Softmax reparte probabilidad entre las cinco clases: cada fila suma 1.\n"
+            "Son cifras inventadas de un clasificador ya entrenado.",
+            hold=4,
+        )
+        self.play(
+            Create(selections), LaggedStart(*(FadeIn(winner) for winner in winners), lag_ratio=0.15)
+        )
+        self.say(
+            "Argmax elige un tag por token. W y b se comparten; "
+            "las filas se calculan en paralelo.\n"
+            "No se genera el siguiente token como en un LLM.",
+            hold=5,
+        )
+
+        # The selected tags survive the network diagram and become a character span.
+        self.play(
+            FadeOut(shared),
+            FadeOut(weights),
+            FadeOut(shared_label),
+            FadeOut(probability_label),
+            FadeOut(vectors),
+            FadeOut(routes),
+            FadeOut(cells),
+            FadeOut(selections),
+            FadeOut(class_labels),
+            *(token.animate.move_to([-4.5 + 3 * i, 1.4, 0]) for i, token in enumerate(tokens)),
+            *(winner.animate.move_to([-4.5 + 3 * i, 0.65, 0]) for i, winner in enumerate(winners)),
+            run_time=1.5,
+        )
+        offsets = VGroup(
+            *(
+                text(offset, 24, MUTED).move_to([-4.5 + 3 * i, -0.1, 0])
+                for i, offset in enumerate(["[6, 11)", "[12, 15)", "[15, 18)", "[19, 22)"])
+            )
+        )
+        origin = text("Offsets del tokenizer, conocidos antes de predecir", 27, MUTED).move_to(
+            UP * 2.4
+        )
+        self.play(FadeIn(offsets), FadeIn(origin))
+        self.say(
+            "El código agrupa B-H seguido de I-H, I-H. O queda fuera.\n"
+            "Los números son posiciones de caracteres en «Tiene dolor lumbar hoy.».",
+            hold=5,
+        )
+        span = bracket(-5.25, 2.25, -0.75, GOLD)
+        self.play(
+            Create(span),
+            tokens[3].animate.set_opacity(0.3),
+            winners[3].animate.set_opacity(0.3),
+            offsets[3].animate.set_opacity(0.3),
+        )
+        start = text("start = 6", 29, TEST).move_to(LEFT * 3 + DOWN * 1.35)
+        end = text("end = 18", 29, TEST).move_to(RIGHT * 0.3 + DOWN * 1.35)
+        entity_type = text("tipo = HALLAZGO", 26, GOLD).move_to(RIGHT * 4 + DOWN * 1.35)
+        self.play(
+            TransformFromCopy(offsets[0], start),
+            TransformFromCopy(offsets[2], end),
+            TransformFromCopy(winners[0], entity_type),
+        )
+        extracted = text("texto[6:18] = «dolor lumbar»", 30, GOLD).move_to(DOWN * 2.2)
+        self.play(FadeIn(extracted))
+        self.say(
+            "start viene del primer token; end, del último (exclusivo). El tipo viene del tag.\n"
+            "Aquí no hay otra cabeza entrenada para predecir start y end.",
+            hold=6,
+        )
+        self.play(
+            *(
+                FadeOut(obj)
+                for obj in [
+                    tokens,
+                    winners,
+                    offsets,
+                    origin,
+                    span,
+                    start,
+                    end,
+                    entity_type,
+                    extracted,
+                ]
+            )
+        )
+        self.remove(cells, *cells, winners, *winners, class_labels, *class_labels)
+        self.play(FadeIn(self.h), FadeIn(self.encoder_icon))
+
     def classifier_and_training(self) -> None:
         self.topic(6, "La cabeza convierte cada vector en tags")
-        self.say("El vector contextual atraviesa la misma cabeza de clasificación en cada token.")
+        self.tags_and_spans()
+        self.say("Para ver el entrenamiento de cerca, volvemos a N = 1: O, B-HALLAZGO, I-HALLAZGO.")
         h_label = text("h: vector de “dolor”", 24, GOLD).move_to(LEFT * 4.4 + DOWN * 1.65)
         input_nodes = VGroup(
             *(Dot([-3.4, 1.25 - i * 0.5, 0], radius=0.07, color=GOLD) for i in range(6))
@@ -611,7 +836,7 @@ class BertSinMisterio(Scene):
         )
         self.say(
             "Una misma cabeza se aplica a cada token: logits → probabilidades → tag.\n"
-            "K tipos necesitan 2K+1 salidas. Aquí usamos un tipo y tres salidas.",
+            "N tipos necesitan 2N+1 salidas. Aquí usamos un tipo y tres salidas.",
             hold=4,
         )
         self.say(

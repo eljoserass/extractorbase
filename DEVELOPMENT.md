@@ -497,3 +497,24 @@ from the user's terminal. Documentation Bash snippets, Ruff and Python
 compilation were checked. The animation behavior is unchanged, so no repeat
 render or extractor tests are needed. Preserved unrelated user changes and
 appended the installation correction to the README memoir.
+
+## Manim classifier head — explicit classes and span reconstruction (8 October 2026)
+
+Expanded chapter 6 instead of leaving the label-space formula in a caption.
+One entity type branches into B/I; adding a second type adds two outputs while
+O remains shared. The five labels transform into probability-matrix columns.
+Four contextual subword vectors pass through the same W,b head in parallel;
+illustrative row-normalized probabilities and highlighted argmax selections
+become B-H/I-H/I-H/O. Those tags move next to tokenizer offsets and group into
+HALLAZGO [6,18), extracting the invented phrase “dolor lumbar”. The sequence
+shows where start, end and type come from, without introducing another learned
+span head. It then explicitly returns to one entity type for the existing
+three-class training/loss demonstration.
+
+Updated the embedded reading guide and animation documentation, including why
+our inference can take argmax directly on logits without first computing
+softmax. All examples remain synthetic. A complete accelerated preview was
+rendered and its class expansion, matrix and span reconstruction were visually
+inspected. Adjusted heading colors and moved the shared weights label away
+from the input paths. Ruff and Python compilation pass. The full-resolution
+render and its validation are recorded in the next increment.
