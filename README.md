@@ -63,6 +63,8 @@ with `--model`. Fitting saves a few-shot prompt and leaves the model weights unc
 The [method guides](docs/methods/README.md) explain the shared contract and how
 [BERT](docs/methods/bert.md), [LLM](docs/methods/llm.md) and
 [dummy](docs/methods/dummy.md) work, including the rationale of the current code.
+The [Spanish Manim lesson](docs/animation.md) animates BIO conversion, the
+transformer encoder/classifier, training and the paper's heldout folds.
 
 The working version is a local Python CLI. It reads Label Studio exports, fits an
 extractor on a selected slice, saves and reloads its artifact, shows a training
@@ -507,3 +509,23 @@ BIO projection limits. The saved task classifier remains weak. The method guide
 now explains that fitting updates a new supervised classifier while freezing
 the encoder by default, and that BERT/BETO do not receive the LLM's few-shot
 instruction prompt. The local diagnosis performed no new training.
+
+The next increment added a standalone Spanish Manim animation with synthetic
+examples. Words become subwords and BIO targets, embeddings pass through
+attention and encoder layers, and particles show the classifier's forward and
+backward flow. All 750 note points move through five independent 600/150 splits
+and merge into out-of-fold predictions. Changing entity boundaries explains
+strict versus overlap, and the LLM sequence distinguishes zero-shot instructions
+from few-shot demonstrations. The lesson clarifies that our adapter already
+converts Label Studio spans to BIO and that the paper's BETO F1 uses test
+predictions, while keeping our small frozen-encoder fit separate from its
+fine-tuning protocol.
+
+Manim is pinned in the script's own uv metadata; rendering needs neither the
+private schema/data nor model downloads or LaTeX. The animation guide documents
+native prerequisites, quality, frame rate and timing controls. Complete preview
+renders and the full 1080p/30 fps MP4 were checked, with chapter timestamps and
+an embedded reading guide exported alongside it. Native libraries and Python
+dependencies were prepared in an isolated temporary environment. No model
+weights were changed. Code and documentation were pushed in separate increments;
+videos and intermediate files remain in ignored local runs.

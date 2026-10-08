@@ -247,7 +247,8 @@ class BertSinMisterio(Scene):
 
     def say(self, message: str, hold: float = 0) -> None:
         caption = text(message, 24, width=12.5).to_edge(DOWN, buff=0.35)
-        self.play(Transform(self.caption, caption), run_time=0.35)
+        self.play(FadeOut(self.caption), FadeIn(caption), run_time=0.35)
+        self.caption = caption
         self.hold(hold)
 
     def flow(self, paths: VGroup, color: str = GOLD, reverse: bool = False) -> None:
@@ -302,13 +303,17 @@ class BertSinMisterio(Scene):
         self.tokens.arrange(RIGHT, buff=0.65).move_to(UP * 1.5)
         self.play(
             TransformMatchingShapes(words, self.tokens),
-            self.span.animate.shift(UP * 0.45),
+            Transform(
+                self.span,
+                bracket(self.tokens[1].get_left()[0], self.tokens[3].get_right()[0], 0.4, GOLD),
+            ),
             FadeOut(offsets),
             run_time=1.5,
         )
         self.say(
             "Un tokenizer puede dividir una palabra en subpalabras.\n"
-            "Este corte es ilustrativo: los offsets enlazan tokens y texto original."
+            "Este corte es ilustrativo: los offsets enlazan tokens y texto original.",
+            hold=2,
         )
         token_offsets = [(0, 5), (6, 11), (12, 15), (15, 18), (19, 22), (22, 23)]
         offset_labels = VGroup(
@@ -317,7 +322,10 @@ class BertSinMisterio(Scene):
                 for token, (start, end) in zip(self.tokens, token_offsets)
             )
         )
-        self.play(LaggedStart(*(FadeIn(item) for item in offset_labels), lag_ratio=0.12))
+        self.play(
+            LaggedStart(*(FadeIn(item) for item in offset_labels), lag_ratio=0.12),
+            label.animate.scale(0.7).move_to(DOWN * 1.55),
+        )
         tags = ["O", "B", "I", "I", "O", "O"]
         self.bio_tags = VGroup(
             *(
@@ -442,7 +450,8 @@ class BertSinMisterio(Scene):
         self.play(TransformFromCopy(self.embeddings[1], query), FadeIn(query_label), Create(beams))
         self.say(
             "La query Q del token consulta las keys K: salen pesos de atención.\n"
-            "Con esos pesos se mezclan los vectores V. Estos pesos son ilustrativos."
+            "Con esos pesos se mezclan los vectores V. Estos pesos son ilustrativos.",
+            hold=2,
         )
         self.play(LaggedStart(*(FadeIn(item) for item in weight_labels), lag_ratio=0.1))
         self.flow(beams)
@@ -615,6 +624,11 @@ class BertSinMisterio(Scene):
         target = text("Gold: B-HALLAZGO", 24, GOLD).move_to(LEFT * 4.4 + DOWN * 2.2)
         loss_probability = DecimalNumber(0.31, mob_class=Text, font_size=26, color=TEST)
         loss_value = DecimalNumber(-math.log(0.31), mob_class=Text, font_size=26, color=TEST)
+
+        def update_loss(number: DecimalNumber) -> None:
+            number.set_value(-math.log(loss_probability.get_value()))
+
+        loss_value.add_updater(update_loss)
         loss = VGroup(
             text("loss = −log(", 26, TEST), loss_probability, text(") =", 26, TEST), loss_value
         ).arrange(RIGHT, buff=0.06)
@@ -648,7 +662,6 @@ class BertSinMisterio(Scene):
                     for label, p in zip(probability_labels, next_probabilities)
                 ),
                 ChangeDecimalToValue(loss_probability, probability),
-                ChangeDecimalToValue(loss_value, -math.log(probability)),
                 edges.animate.set_color(GRADIENT),
                 Indicate(output_nodes[1], color=GOLD),
                 run_time=1.2,

@@ -450,3 +450,32 @@ readability and object cleanup. The documented `uv run --script` entry point
 and its isolated dependency environment were checked with cached packages.
 The final 1080p render and the installation guide follow in the next increment.
 No private data, schema, model or rendered result is part of this commit.
+
+## Manim explanation — rendering guide and final verification (8 October 2026)
+
+The animation implementation was committed and pushed as `d04bd34`. Added
+`docs/animation.md` with Mac/Linux native prerequisites, isolated uv execution,
+quality/fps/pace options, generated files and the distinction between the
+paper's transformer cross-validation and its rules/zero-shot LLM evaluations.
+Linked it from the README and appended this work to the final memoir.
+
+The visual polish replaces caption morphs with crossfades, adds reading time
+around tokenizer/attention explanations, and ties the animated loss value to
+the current gold-tag probability. Thus `loss = -log(p_gold)` remains true during
+the transitions as well as at their endpoints. Text-based decimal counters
+avoid requiring LaTeX. The source remains fully synthetic and standalone.
+Moved the entity-type legend away from the emerging BIO tags and realigned its
+character-span bracket when the words separate into subwords.
+
+Rendered the complete final lesson through its PEP 723 uv entry point, using
+cached dependencies in this network-restricted environment: H.264 MP4,
+1920×1080, 30 fps, 7,739 frames and about 4 minutes 18 seconds.
+Verified all twelve ordered chapter timestamps, inspected the final BIO,
+attention, training, fold, pooling and scoring frames, and decoded the entire
+video with FFmpeg without errors. Ruff and Python compilation pass; relative
+documentation links and Bash examples were checked. Generated videos, frames,
+reading notes and timestamps remain in ignored `runs/animations/`.
+
+The user's existing README note, installation example and CLI whitespace
+changes are preserved and excluded from these commits. No extractor code,
+dataset, private schema or model weights changed, and no fitting was run.
