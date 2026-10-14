@@ -16,9 +16,11 @@ from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.usage import RunUsage
 
 from data import (
     DocumentInput,
+    JsonObject,
     LabelStudioTaskPrediction,
     ResultItem,
     TaskSpec,
@@ -122,6 +124,23 @@ def validate_structure(extraction: Extraction, spec: TaskSpec) -> None:
 class GroundedResults:
     results: list[ResultItem]
     warnings: list[str]
+
+
+def inference_usage(value: object) -> JsonObject:
+    """Keep provider-reported run totals, including schema-repair requests."""
+    usage = getattr(value, "usage", None)
+    if callable(usage):
+        usage = usage()
+    if not isinstance(usage, RunUsage):
+        return {"input_tokens": None, "output_tokens": None, "requests": None}
+    reported = usage.input_tokens > 0 or usage.output_tokens > 0
+    return {
+        "input_tokens": usage.input_tokens if reported else None,
+        "output_tokens": usage.output_tokens if reported else None,
+        "requests": usage.requests,
+        "cache_read_tokens": usage.cache_read_tokens if reported else None,
+        "cache_write_tokens": usage.cache_write_tokens if reported else None,
+    }
 
 
 def ground_quotes(
@@ -345,6 +364,7 @@ class LLMMethod(Method[LLMArtifact]):
         agent = self._agent(artifact)
         predictions: list[LabelStudioTaskPrediction] = []
         for document in inputs:
+            run_result: object = None
             logging.getLogger(__name__).info(
                 "Extracting document %s with %s...", document.id, artifact.config.model
             )
@@ -356,11 +376,12 @@ class LLMMethod(Method[LLMArtifact]):
                     raise ValueError(
                         "Prompt plus document exceeds the configured character budget."
                     )
-                output = agent.run_sync(
+                run_result = agent.run_sync(
                     "DOCUMENTO A ANOTAR (solo este texto; los ejemplos son de referencia):\n"
                     + document.text,
                     deps=document,
-                ).output
+                )
+                output = run_result.output
                 grounded = ground_quotes(output, document, artifact.task_spec)
                 prediction = prediction_for(document, grounded.results, artifact.config.model)
                 if grounded.warnings:
@@ -373,7 +394,9 @@ class LLMMethod(Method[LLMArtifact]):
                 detail = f"{error}: {cause}" if cause is not error else str(error)
                 prediction = prediction_for(document, [], artifact.config.model)
                 prediction["meta"] = {"extraction_error": detail}
+                run_result = error
                 logging.getLogger(__name__).warning("Document %s failed: %s", document.id, detail)
+            prediction.setdefault("meta", {})["inference_usage"] = inference_usage(run_result)
             predictions.append(prediction)
             logging.getLogger(__name__).info(
                 "Document %s: %s result items%s",

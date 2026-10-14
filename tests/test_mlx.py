@@ -99,6 +99,9 @@ def test_backend_request_and_reloaded_prediction(
     assert entity["value"]["start"] == 2
     assert entity["value"]["end"] == 8
     assert "extraction_error" not in predictions[0].get("meta", {})
+    usage = predictions[0]["meta"]["inference_usage"]
+    assert usage["input_tokens"] == 10 and usage["output_tokens"] == 10
+    assert usage["requests"] == 1
 
     if backend == "mlx":
         assert "response_format" not in request
@@ -132,6 +135,9 @@ def test_mlx_repairs_invalid_json_through_plain_messages(
     assert len(requests[1]["messages"]) > len(requests[0]["messages"])
     assert predictions[0]["predictions"][0]["result"]
     assert "extraction_error" not in predictions[0].get("meta", {})
+    usage = predictions[0]["meta"]["inference_usage"]
+    assert usage["input_tokens"] == 20 and usage["output_tokens"] == 20
+    assert usage["requests"] == 2
 
 
 def test_old_artifact_defaults_to_lmstudio(tmp_path: Path) -> None:
