@@ -9,6 +9,11 @@ choices behind it:
 | `bert` | Trained token-classifier weights and tokenizer | A local Transformer encoder and classifier | Not predicted | [BERT](bert.md) |
 | `llm` | A fixed prompt, labeled demonstrations and server settings | Gemma through LM Studio | Predicted when supported by extracted entities | [LLM](llm.md) |
 | `dummy` | The task definition | An empty result for every document | Not predicted | [Dummy](dummy.md) |
+| `rulechef` | LLM-generated rules with validation statistics | Local regex / spaCy execution | Not predicted | [RuleChef](rulechef.md) |
+| `hard_spacy` | Dictionaries and fixed token patterns | Local Spanish spaCy Matcher | Predicted for supported labels | [HardSpaCy](hard_spacy.md) |
+
+RuleChef and HardSpaCy implement the shared Python interface and have experiment
+runners; they are not yet options in the general CLI method selector.
 
 Start with [installation](../install.md) for dependencies and data, or the
 [CLI guide](../cli.md) for commands and flags. The method guides focus on the
@@ -45,9 +50,9 @@ uses the label vocabulary and does not interpret prose instructions. Dummy keeps
 the task definition for reload. A shared field need not affect every algorithm.
 
 Required method-specific settings belong in `BertConfig` or `LLMConfig`.
-`dev_examples` and `scorer` are optional keyword arguments shared by all methods;
-none of these three implementations currently uses them. A future optimizer can
-validate that it needs them inside its own `fit`.
+`dev_examples` and `scorer` are optional keyword arguments shared by all methods.
+RuleChef uses explicit development examples for candidate acceptance and the
+scorer for reporting. The other methods keep their own learning procedures.
 
 The base class defines method signatures, not an automatic validation pipeline.
 The CLI selects gold and validates annotations before fitting. Direct Python
@@ -64,6 +69,8 @@ prediction; BERT does not need an F1 callback to train.
 LLM fitting places gold extractions next to their texts in the prompt. Gemma uses
 those demonstrations during inference. This implementation does not search for
 a better prompt or change model weights. Dummy does not learn from the targets.
+RuleChef instead uses training failures to ask an LLM for rule patches and can
+use separate development data to select candidates.
 
 There is consequently no shared optimizer between evaluator and method. The
 common contract describes inputs, reusable fitted state and predictions; each
@@ -140,3 +147,7 @@ chosen splits when studying extraction quality.
 | Token training and span decoding | [methods/bert.py](../../methods/bert.py) |
 | Prompt construction and quote grounding | [methods/llm.py](../../methods/llm.py) |
 | Empty predictor | [methods/dummy.py](../../methods/dummy.py) |
+| Rule synthesis and local rule inference | [methods/rulechef.py](../../methods/rulechef.py) |
+| Rule learning with explicit dev | [methods/rulechef_learning.py](../../methods/rulechef_learning.py) |
+| Completion transports and isolation | [methods/rulechef_client.py](../../methods/rulechef_client.py) |
+| Label-aware splits and ablation matrix | [experiments/rulechef_ablation.py](../../experiments/rulechef_ablation.py) |

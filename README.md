@@ -63,8 +63,17 @@ with `--model`. Fitting saves a few-shot prompt and leaves the model weights unc
 The [method guides](docs/methods/README.md) explain the shared contract and how
 [BERT](docs/methods/bert.md), [LLM](docs/methods/llm.md) and
 [dummy](docs/methods/dummy.md) work, including the rationale of the current code.
+RuleChef and HardSpaCy use the same Python contract through their own experiment
+runners; see the [RuleChef guide](docs/methods/rulechef.md) and
+[ablation protocol](docs/methods/rulechef-experiments.md). The
+[partial results](docs/results/rulechef-ablation.md) publish aggregate metrics only.
 The [Spanish Manim lesson](docs/animation.md) animates BIO conversion, the
 transformer encoder/classifier, training and the paper's heldout folds.
+
+The [architecture roadmap](docs/architecture-roadmap.md) records the proposed
+local client / fit server flow, user-defined schemas, feedback and model versions.
+The [rule-code audit](docs/methods/rulechef-paper-audit.md) explains the measured
+gap between the supplied rules and the ten-example RuleChef experiments.
 
 The working version is a local Python CLI. It reads Label Studio exports, fits an
 extractor on a selected slice, saves and reloads its artifact, shows a training
