@@ -25,14 +25,35 @@ from data import (  # noqa: E402
 from evaluator import score  # noqa: E402
 from methods.rulechef import RuleChefConfig, RuleChefMethod  # noqa: E402
 
+SOURCE_FILES = (
+    "data.py",
+    "evaluator.py",
+    "methods/__init__.py",
+    "methods/base.py",
+    "methods/rulechef.py",
+    "methods/rulechef_client.py",
+    "methods/rulechef_learning.py",
+    "experiments/evaluate_rulechef.py",
+)
 
-def write_json(path: Path, value) -> None:
+
+def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def snapshot_sources(directory: Path) -> dict[str, str]:
+    hashes = {}
+    for name in SOURCE_FILES:
+        destination = directory / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, destination)
+        hashes[name] = sha256(destination)
+    return hashes
 
 
 def peak_rss(who: int) -> int:
@@ -48,6 +69,8 @@ def main() -> None:
     parser.add_argument("--model")
     parser.add_argument("--endpoint")
     parser.add_argument("--refinement-iterations", type=int, default=3)
+    parser.add_argument("--rule-formats", nargs="+", choices=["regex", "spacy"], default=["regex"])
+    parser.add_argument("--spacy-model")
     args = parser.parse_args()
     output = args.output.resolve()
     manifest_path = ROOT / "data/common_holdout_789_manifest.json"
@@ -73,6 +96,8 @@ def main() -> None:
             endpoint=args.endpoint,
             refinement_iterations=args.refinement_iterations,
             trace_directory=str(output / "synthesis"),
+            rule_formats=tuple(args.rule_formats),
+            spacy_model=args.spacy_model,
         )
     )
     artifact_dir = output / "artifact"
@@ -80,10 +105,7 @@ def main() -> None:
         if output.exists() and any(output.iterdir()):
             raise ValueError("Choose an empty output directory for a new fit.")
         output.mkdir(parents=True, exist_ok=True)
-        source = output / "source"
-        source.mkdir()
-        shutil.copy2(ROOT / "methods/rulechef.py", source / "rulechef.py")
-        shutil.copy2(Path(__file__), source / "evaluate_rulechef.py")
+        source_hashes = snapshot_sources(output / "source")
         train = [make_example(by_id[key], spec, GoldPolicy.CLINICIAN, (3, 4)) for key in train_ids]
         write_json(
             output / "config.json",
@@ -97,6 +119,7 @@ def main() -> None:
                 "schema_sha256": sha256(schema_path),
                 "implementation_sha256": sha256(ROOT / "methods/rulechef.py"),
                 "runner_sha256": sha256(Path(__file__)),
+                "source_sha256": source_hashes,
                 "config": asdict(method.config),
                 "gold_policy": "clinician",
                 "reviewer_ids": [3, 4],
@@ -127,6 +150,8 @@ def main() -> None:
                 "provider_model_memory_bytes": None,
                 "artifact_sha256": sha256(artifact_dir / "artifact.json"),
                 "saved_rule_count": len(artifact.rules),
+                "rule_formats": artifact.provenance["rule_formats"],
+                "spacy_pipeline": artifact.provenance["spacy_pipeline"],
                 "reload_identical": True,
             },
         )
@@ -160,6 +185,10 @@ def main() -> None:
 
     if (output / "metrics.json").exists():
         raise ValueError("Test results already exist; refusing to overwrite them.")
+    fit_config = json.loads((output / "config.json").read_text())
+    for name, expected in fit_config.get("source_sha256", {}).items():
+        if sha256(ROOT / name) != expected:
+            raise ValueError(f"Implementation changed since fit: {name}")
     artifact_hash = sha256(artifact_dir / "artifact.json")
     started = time.perf_counter()
     artifact = method.load(artifact_dir)
@@ -183,6 +212,7 @@ def main() -> None:
     started = time.perf_counter()
     metrics = asdict(score(predictions, test))
     evaluation_seconds = time.perf_counter() - started
+    pipeline = getattr(method.executor, "_nlp", None)
     assert sha256(artifact_dir / "artifact.json") == artifact_hash
     write_json(output / "predictions.json", predictions)
     write_json(output / "metrics.json", metrics)
@@ -202,6 +232,10 @@ def main() -> None:
             "artifact_sha256_before": artifact_hash,
             "artifact_sha256_after": sha256(artifact_dir / "artifact.json"),
             "test_implementation_sha256": sha256(ROOT / "methods/rulechef.py"),
+            "rule_formats": artifact.provenance.get("rule_formats"),
+            "spacy_pipeline": artifact.provenance.get("spacy_pipeline"),
+            "spacy_documents_processed": pipeline._parse.cache_info().misses if pipeline else 0,
+            "spacy_document_cache_hits": pipeline._parse.cache_info().hits if pipeline else 0,
             "annotation_ids": [example.gold.id for example in test],
         },
     )
@@ -209,7 +243,7 @@ def main() -> None:
         "# RuleChef: train 10 / test 789",
         "",
         "Fit on IDs 1–10 only; training refinement uses exact offsets. No dev set. "
-        "Frozen JSON artifact loaded in a fresh process; regex inference, no model calls.",
+        "Frozen JSON artifact loaded in a fresh process; rule inference, no LLM calls.",
         "",
         "| Metric | Precision | Recall | F1 |",
         "|---|---:|---:|---:|",
