@@ -1,19 +1,21 @@
-"""Self-contained RuleChef NER adapter; model access is needed only for fit."""
+"""Self-contained RuleChef NER adapter; LLM access is needed only for fit."""
 
 import hashlib
 import json
-import subprocess
-import tempfile
+import re
 import time
-import tomllib
+from collections import Counter
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from importlib.metadata import version
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import create_model
+from rulechef import executor as upstream_executor
+from rulechef.coordinator import AgenticCoordinator
 from rulechef.core import Dataset, Example, Rule, RuleFormat, Task, TaskType
 from rulechef.evaluation import EvalResult, evaluate_dataset, evaluate_rules_individually
 from rulechef.executor import RuleExecutor
@@ -28,6 +30,7 @@ from data import (
     prediction_for,
 )
 from methods.base import Method, Scorer
+from methods.rulechef_client import CodexClient
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,14 @@ class RuleChefConfig:
     refinement_iterations: int = 3
     call_timeout_seconds: int = 1200
     trace_directory: str | None = None
+    rule_formats: tuple[str, ...] = ("regex",)
+    spacy_model: str | None = None
+    codex_isolation: str = "bubblewrap"
+    reasoning_effort: str | None = None
+    synthesis_strategy: str = "bulk"
+    max_rules_per_class: int = 5
+    agentic: bool = False
+    learning_instructions: str = ""
 
 
 @dataclass
@@ -46,159 +57,79 @@ class RuleChefArtifact:
     task_spec: TaskSpec
     rules: list[Rule]
     provenance: dict[str, Any] = field(default_factory=dict)
+    spacy_model: str | None = None
 
 
-class CodexClient:
-    """Translate RuleChef's completion calls to the authenticated Codex CLI.
+class SpanishPipeline:
+    """Reuse the annotated document across rules without changing upstream code."""
 
-    Each request is independent and runs outside the repository with shell,
-    apps, web search and delegation disabled. Save and audit every event.
+    def __init__(self, model: str):
+        import spacy
+
+        self.language = spacy.blank("es") if model == "blank:es" else spacy.load(model)
+        if self.language.lang != "es":
+            raise ValueError("RuleChef's Spanish variant requires an es pipeline.")
+        self.vocab = self.language.vocab
+        self._parse = lru_cache(maxsize=16)(self.language.__call__)
+
+    def disable_pipes(self, *names: str) -> Any:
+        return self.language.select_pipes(
+            disable=[name for name in names if name in self.language.pipe_names]
+        )
+
+    def __call__(self, text: str) -> Any:
+        return self._parse(text)
+
+
+class CaptureSpanExecutor(RuleExecutor):
+    """Resolve lookaround captures from Match.span, not an empty full match.
+
+    RuleChef 0.2.2 searches for captured text inside match.group(0). That cannot
+    recover a span captured by a zero-width lookaround. Preserve normal native
+    results and explicit offsets; only repair this provable capture case.
     """
 
-    def __init__(self, config: RuleChefConfig):
-        self.config = config
-        self.calls: list[dict[str, Any]] = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
-        config_file = Path.home() / ".codex/config.toml"
-        defaults = tomllib.loads(config_file.read_text()) if config_file.exists() else {}
-        self.model = config.model or defaults.get("model")
-        self.reasoning = defaults.get("model_reasoning_effort", "high")
+    def _execute_regex_rule(
+        self,
+        rule: Rule,
+        input_data: dict,
+        text_field: str | None = None,
+    ) -> Any:
+        results = super()._execute_regex_rule(rule, input_data, text_field)
+        template = rule.output_template or {}
+        capture = re.fullmatch(r"\$(\d+)", str(template.get("text", "")))
+        if (
+            not capture
+            or template.get("start") != "$start"
+            or template.get("end") != "$end"
+            or not any(
+                isinstance(item, dict) and item.get("start") == item.get("end") for item in results
+            )
+            or upstream_executor._regex_mod is None
+        ):
+            return results
+        text = self._select_text(input_data, text_field)
+        try:
+            pattern = upstream_executor._regex_mod.compile(rule.content)
+            matches = list(pattern.finditer(text, timeout=upstream_executor.RULE_TIMEOUT_S))
+        except (TimeoutError, upstream_executor._regex_mod.error):
+            return results
+        for item, match in zip(results, matches, strict=True):
+            if match.start() != match.end():
+                continue
+            start, end = match.span(int(capture.group(1)))
+            if start >= 0 and end > start and item.get("text") == text[start:end]:
+                item.update(start=start, end=end)
+        return results
 
-    @staticmethod
-    def _schema() -> dict:
-        def obj(properties: dict[str, Any]) -> dict[str, Any]:
-            return {
-                "type": "object",
-                "properties": properties,
-                "required": list(properties),
-                "additionalProperties": False,
-            }
 
-        string = {"type": "string"}
-        rule = obj(
-            {
-                "name": string,
-                "description": string,
-                "format": {"type": "string", "enum": ["regex"]},
-                "content": string,
-                "priority": {"type": "integer"},
-                "output_key": {"type": "string", "enum": ["entities"]},
-                "output_template": obj({key: string for key in ("text", "start", "end", "type")}),
-            }
-        )
-        return obj(
-            {
-                "analysis": string,
-                "rules": {"type": "array", "items": rule},
-                "deleted_rules": {"type": "array", "items": string},
-            }
-        )
-
-    def create(self, **kwargs: Any) -> SimpleNamespace:
-        index = len(self.calls) + 1
-        with tempfile.TemporaryDirectory(prefix="rulechef-completion-") as temporary:
-            root = Path(temporary)
-            trace = (
-                Path(self.config.trace_directory).resolve() / f"call_{index:03d}"
-                if self.config.trace_directory
-                else root
-            )
-            trace.mkdir(parents=True, exist_ok=True)
-            (root / "AGENTS.md").write_text(
-                "Return the requested JSON using only the supplied messages. "
-                "Do not use tools, read files, browse, or delegate.\n"
-            )
-            schema_file = root / "response_schema.json"
-            schema_file.write_text(json.dumps(self._schema()))
-            response_file = trace / "response.json"
-            prompt = (
-                "Act only as the completion model for RuleChef. Follow the messages below. "
-                "Return JSON only. Use regex rules, no tools. "
-                "For a patch, return deleted_rules as requested; otherwise use [].\n\n"
-                + json.dumps(kwargs["messages"], ensure_ascii=False)
-            )
-            (trace / "request.json").write_text(json.dumps(kwargs, ensure_ascii=False, indent=2))
-            command = [
-                "codex",
-                "exec",
-                "--ignore-user-config",
-                "--ignore-rules",
-                "--ephemeral",
-                "--skip-git-repo-check",
-                "--sandbox",
-                "read-only",
-                "--json",
-                "--cd",
-                str(root),
-                "--output-schema",
-                str(schema_file),
-                "--output-last-message",
-                str(response_file),
-                "-c",
-                'web_search="disabled"',
-                "-c",
-                "features.shell_tool=false",
-                "-c",
-                "features.apps=false",
-                "-c",
-                "features.multi_agent=false",
-                "-c",
-                "features.skill_search=false",
-                "-c",
-                f'model_reasoning_effort="{self.reasoning}"',
-            ]
-            if self.model:
-                command += ["--model", self.model]
-            started = time.perf_counter()
-            print(f"RuleChef model call {index}: {self.model or 'Codex default'}", flush=True)
-            with (
-                (trace / "events.jsonl").open("w") as events,
-                (trace / "stderr.log").open("w") as errors,
-            ):
-                completed = subprocess.run(
-                    [*command, "-"],
-                    input=prompt,
-                    text=True,
-                    stdout=events,
-                    stderr=errors,
-                    timeout=self.config.call_timeout_seconds,
-                    check=False,
-                )
-            record: dict[str, Any] = {
-                "index": index,
-                "model": self.model,
-                "reasoning_effort": self.reasoning,
-                "seconds": time.perf_counter() - started,
-                "returncode": completed.returncode,
-                "requested_output_tokens": kwargs.get("max_completion_tokens"),
-                "output_token_limit_enforced": False,
-                "usage": {},
-                "tool_calls": [],
-            }
-            for line in (trace / "events.jsonl").read_text().splitlines():
-                event = json.loads(line)
-                if event.get("type") == "turn.completed":
-                    for key, count in event.get("usage", {}).items():
-                        record["usage"][key] = record["usage"].get(key, 0) + count
-                item = event.get("item", {})
-                if event.get("type") == "item.completed" and item.get("type") not in {
-                    "agent_message",
-                    "reasoning",
-                    None,
-                }:
-                    record["tool_calls"].append(item.get("type"))
-            self.calls.append(record)
-            (trace / "metadata.json").write_text(json.dumps(record, indent=2))
-            if completed.returncode or not response_file.exists():
-                raise RuntimeError(f"Codex completion failed; inspect {trace / 'stderr.log'}")
-            if record["tool_calls"]:
-                raise RuntimeError("Synthesis attempted tools; refusing this training result.")
-            content = response_file.read_text()
-            json.loads(content)
-            print(f"RuleChef model call {index} finished in {record['seconds']:.1f}s", flush=True)
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-            )
+def _executor(model: str | None) -> RuleExecutor:
+    executor = CaptureSpanExecutor(use_spacy_ner=False)
+    if model:
+        # Upstream otherwise lazily loads/downloads en_core_web_sm. Preloading
+        # the per-instance pipeline keeps both fitting and inference in Spanish.
+        cast(Any, executor)._nlp = SpanishPipeline(model)
+    return executor
 
 
 class ExactRuleLearner(RuleLearner):
@@ -219,8 +150,141 @@ class ExactRuleLearner(RuleLearner):
 class RuleChefMethod(Method[RuleChefArtifact]):
     def __init__(self, config: RuleChefConfig | None = None, *, client: Any = None):
         self.config = config or RuleChefConfig()
+        if not self.config.rule_formats or set(self.config.rule_formats) - {"regex", "spacy"}:
+            raise ValueError("Supported rule formats are regex and spacy.")
+        if "spacy" in self.config.rule_formats and not self.config.spacy_model:
+            raise ValueError("Select a Spanish spacy_model when enabling spaCy rules.")
+        if self.config.synthesis_strategy not in {"bulk", "per_class"}:
+            raise ValueError("synthesis_strategy must be bulk or per_class.")
+        if self.config.refinement_iterations < 0:
+            raise ValueError("refinement_iterations must be nonnegative.")
         self.client = client
-        self.executor = RuleExecutor(use_spacy_ner=False)
+        self.executor = _executor(self.config.spacy_model)
+
+    def _task(self, spec: TaskSpec) -> Task:
+        entity = create_model(
+            "Entity",
+            text=(str, ...),
+            start=(int, ...),
+            end=(int, ...),
+            type=(Literal[spec.entity_labels], ...),
+        )
+        entity_list = list[entity]  # type: ignore[valid-type]
+        output = create_model("Entities", entities=(entity_list, ...))
+        description = (
+            "Extract the annotated entities with exact character offsets in the original text. "
+            "Emit only entities, no relations. Generalize from the training annotations. "
+            + (spec.instructions or "")
+            + "\n"
+            + self.config.learning_instructions
+        )
+        if "spacy" in self.config.rule_formats:
+            description += (
+                f"\nspaCy runtime: {self.config.spacy_model}. Statistical NER is disabled. "
+                "Token patterns support LOWER/TEXT, IN, REGEX, OP, FUZZY and FUZZY1. "
+                'For example [{"LOWER": {"FUZZY1": "example"}}] allows one edit; '
+                "consider fuzzy matching for spelling variants, but short patterns can be noisy. "
+                "Combine regex and spaCy when useful; regex handles sub-token boundaries. "
+                "spaCy content must be a JSON array of token dictionaries. "
+                "Templates use $0/$start/$end for a whole match or $1.text/$1.start/$1.end "
+                "for the first token, $2 for the second, etc. Context tokens must not be "
+                "included in the extracted span unless annotated. "
+            )
+            if self.config.spacy_model == "blank:es":
+                description += (
+                    "This runtime has only a tokenizer: do not use POS, LEMMA, MORPH or DEP."
+                )
+            else:
+                description += (
+                    "The trained Spanish pipeline also provides POS, LEMMA, MORPH and DEP."
+                )
+        return Task(
+            name="Entity extraction",
+            type=TaskType.NER,
+            description=description,
+            input_schema={"text": "str"},
+            output_schema=output,
+            matching_mode="exact",
+            text_field="text",
+        )
+
+    @staticmethod
+    def _dataset(
+        examples: Sequence[TrainingExample],
+        task: Task,
+        labels: Sequence[str],
+        name: str,
+    ) -> Dataset:
+        dataset = Dataset(name=name, task=task)
+        for example in examples:
+            entities = []
+            for item in example.gold.result:
+                if item["type"] != "labels":
+                    continue
+                value = item["value"]
+                if not 0 <= value["start"] < value["end"] <= len(example.input.text):
+                    raise ValueError("Invalid training offsets.")
+                for label in value["labels"]:
+                    if label not in labels:
+                        raise ValueError(f"Unknown training label: {label}")
+                    entities.append(
+                        {
+                            "text": example.input.text[value["start"] : value["end"]],
+                            "start": value["start"],
+                            "end": value["end"],
+                            "type": label,
+                        }
+                    )
+            dataset.examples.append(
+                Example(
+                    id=str(example.input.id),
+                    input={"text": example.input.text},
+                    expected_output={"entities": entities},
+                    source="human",
+                )
+            )
+        return dataset
+
+    def _learner(self, train_size: int) -> tuple[ExactRuleLearner, Any]:
+        client = self.client
+        if client is None:
+            if self.config.backend == "codex":
+                client = CodexClient(self.config)
+            elif self.config.backend == "openai":
+                from openai import OpenAI
+
+                from methods.rulechef_client import RecordedClient
+
+                client = RecordedClient(OpenAI(base_url=self.config.endpoint), self.config)
+            else:
+                raise ValueError(f"Unknown synthesis backend: {self.config.backend}")
+        model = self.config.model or getattr(client, "model", None)
+        if not model:
+            raise ValueError("Choose an explicit synthesis model for this backend.")
+        learner = ExactRuleLearner(
+            client,
+            model=model,
+            allowed_formats=[RuleFormat(value) for value in self.config.rule_formats],
+            use_grex=False,
+            use_spacy_ner=False,
+            max_rules=self.config.max_rules,
+            max_rules_per_class=self.config.max_rules_per_class,
+            max_samples=train_size,
+        )
+        learner.executor = self.executor
+        return learner, client
+
+    @staticmethod
+    def _check_separation(
+        train: Sequence[TrainingExample],
+        dev: Sequence[TrainingExample],
+    ) -> None:
+        train_ids = {str(example.input.id) for example in train}
+        train_texts = {" ".join(example.input.text.split()).casefold() for example in train}
+        if train_ids & {str(example.input.id) for example in dev}:
+            raise ValueError("Train and dev IDs overlap.")
+        if train_texts & {" ".join(example.input.text.split()).casefold() for example in dev}:
+            raise ValueError("Train and dev contain duplicate texts.")
 
     def fit(
         self,
@@ -232,113 +296,154 @@ class RuleChefMethod(Method[RuleChefArtifact]):
     ) -> RuleChefArtifact:
         if not train_examples:
             raise ValueError("RuleChef needs training examples.")
-        if dev_examples is not None:
-            raise ValueError("This pilot refines only on train; explicit dev is not implemented.")
-        entity = create_model(
-            "ClinicalEntity",
-            text=(str, ...),
-            start=(int, ...),
-            end=(int, ...),
-            type=(Literal[task_spec.entity_labels], ...),
-        )
-        output = create_model("ClinicalEntities", entities=(list.__class_getitem__(entity), ...))
-        task = Task(
-            name="Spanish clinical NER",
-            type=TaskType.NER,
-            description=(
-                "Extract the annotated clinical entities from Spanish rheumatology notes. "
-                "Preserve the original text and exact character boundaries. Values are separate "
-                "entities from their test/index names. Emit only entities, no relations. "
-                "Generalize from the supplied training annotations; do not memorize entire notes. "
-                + (task_spec.instructions or "")
-            ),
-            input_schema={"text": "str"},
-            output_schema=output,
-            matching_mode="exact",
-            text_field="text",
-        )
-        dataset = Dataset(name="clinical_train", task=task)
-        for example in train_examples:
-            entities = []
-            for item in example.gold.result:
-                if item["type"] == "labels":
-                    value = item["value"]
-                    if not 0 <= value["start"] < value["end"] <= len(example.input.text):
-                        raise ValueError("Invalid training offsets.")
-                    for label in value["labels"]:
-                        if label not in task_spec.entity_labels:
-                            raise ValueError(f"Unknown training label: {label}")
-                        entities.append(
-                            {
-                                "text": example.input.text[value["start"] : value["end"]],
-                                "start": value["start"],
-                                "end": value["end"],
-                                "type": label,
-                            }
-                        )
-            dataset.examples.append(
-                Example(
-                    id=str(example.input.id),
-                    input={"text": example.input.text},
-                    expected_output={"entities": entities},
-                    source="human",
-                )
-            )
-        client = self.client
-        if client is None:
-            if self.config.backend == "codex":
-                client = CodexClient(self.config)
-            elif self.config.backend == "openai":
-                from openai import OpenAI
-
-                client = OpenAI(base_url=self.config.endpoint)
-            else:
-                raise ValueError(f"Unknown synthesis backend: {self.config.backend}")
-        learner = ExactRuleLearner(
-            client,
-            model=self.config.model or getattr(client, "model", None) or "gpt-4o-mini",
-            allowed_formats=[RuleFormat.REGEX],
-            use_grex=False,
-            use_spacy_ner=False,
-            max_rules=self.config.max_rules,
-            max_samples=len(train_examples),
-        )
+        dev = list(dev_examples or [])
+        self._check_separation(train_examples, dev)
+        task = self._task(task_spec)
+        dataset = self._dataset(train_examples, task, task_spec.entity_labels, "train")
+        learner, client = self._learner(len(train_examples))
         started = time.perf_counter()
-        rules = learner.synthesize_ruleset(dataset)
+        if self.config.synthesis_strategy == "per_class":
+            rules = learner.synthesize_ruleset_per_class(dataset)
+        else:
+            rules = learner.synthesize_ruleset(dataset)
+        if getattr(client, "failure", None):
+            raise RuntimeError(f"Synthesis completion failed: {client.failure}")
         if not rules:
             raise RuntimeError("RuleChef synthesized no valid rules; inspect the model traces.")
-        if self.config.refinement_iterations:
-            rules, _ = learner.evaluate_and_refine(
-                rules,
-                dataset,
+        provenance: dict[str, Any] = {
+            "rulechef_version": version("rulechef"),
+            "runtime": "rulechef-0.2.2+zero-width-capture-spans",
+            "config": asdict(self.config),
+            "train_ids": [example.input.id for example in train_examples],
+            "train_annotation_ids": [example.gold.id for example in train_examples],
+            "train_text_sha256": [
+                hashlib.sha256(e.input.text.encode()).hexdigest() for e in train_examples
+            ],
+            "dev_ids": [example.input.id for example in dev],
+            "dev_used": bool(dev),
+            "test_used_during_fit": False,
+            "selection": "exact micro F1 on dev" if dev else "exact micro F1 on train",
+            "synthesis_strategy": self.config.synthesis_strategy,
+            "model_calls": deepcopy(getattr(client, "calls", [])),
+            "synthesis_seconds": time.perf_counter() - started,
+            "llm_fallback": False,
+            "prediction_model_version": "rulechef",
+            "span_conflicts": "native RuleChef: same start/end keeps one entity across labels",
+        }
+        artifact = RuleChefArtifact(task_spec, rules, provenance, self.config.spacy_model)
+        return self._finish(artifact, learner, client, train_examples, dev, scorer)
+
+    def refine(
+        self,
+        artifact: RuleChefArtifact,
+        train_examples: Sequence[TrainingExample],
+        *,
+        dev_examples: Sequence[TrainingExample] | None = None,
+        scorer: Scorer | None = None,
+    ) -> RuleChefArtifact:
+        """Refine an immutable initial artifact; useful for paired ablations and feedback."""
+        dev = list(dev_examples or [])
+        self._check_separation(train_examples, dev)
+        if [e.input.id for e in train_examples] != artifact.provenance["train_ids"]:
+            raise ValueError("Refinement train IDs differ from the initial synthesis examples.")
+        if self.config.rule_formats != tuple(artifact.provenance["config"]["rule_formats"]):
+            raise ValueError("Refinement must use the initial artifact's rule formats.")
+        if self.config.spacy_model != artifact.provenance["config"].get("spacy_model"):
+            raise ValueError("Refinement must use the initial artifact's spaCy runtime.")
+        learner, client = self._learner(len(train_examples))
+        return self._finish(
+            deepcopy(artifact),
+            learner,
+            client,
+            train_examples,
+            dev,
+            scorer,
+            prior_calls=artifact.provenance.get("model_calls", []),
+        )
+
+    def _finish(
+        self,
+        artifact: RuleChefArtifact,
+        learner: ExactRuleLearner,
+        client: Any,
+        train_examples: Sequence[TrainingExample],
+        dev_examples: Sequence[TrainingExample],
+        scorer: Scorer | None,
+        prior_calls: list[dict[str, Any]] | None = None,
+    ) -> RuleChefArtifact:
+        from methods.rulechef_learning import refine_on_dev
+
+        task = self._task(artifact.task_spec)
+        train = self._dataset(train_examples, task, artifact.task_spec.entity_labels, "train")
+        dev = (
+            self._dataset(dev_examples, task, artifact.task_spec.entity_labels, "dev")
+            if dev_examples
+            else None
+        )
+        started = time.perf_counter()
+        coordinator = None
+        if self.config.agentic:
+            coordinator = AgenticCoordinator(
+                client,
+                model=learner.model,
+                prune_after_learn=True,
+                enable_critic=True,
+                critic_interval=2,
+                audit_interval=3,
+            )
+        history: list[dict[str, Any]] = []
+        if dev is not None:
+            artifact.rules, history = refine_on_dev(
+                learner,
+                artifact.rules,
+                train,
+                dev,
+                self.config.refinement_iterations,
+                coordinator,
+            )
+        elif self.config.refinement_iterations:
+            artifact.rules, _ = learner.evaluate_and_refine(
+                artifact.rules,
+                train,
                 max_iterations=self.config.refinement_iterations,
+                coordinator=coordinator,
                 holdout_fraction=0.0,
                 audit_interval=0,
             )
         else:
-            learner._stamp_validated_stats(rules, dataset)
-        artifact = RuleChefArtifact(
-            task_spec,
-            rules,
+            learner._stamp_validated_stats(artifact.rules, train)
+        if getattr(client, "failure", None):
+            raise RuntimeError(f"Refinement completion failed: {client.failure}")
+        new_calls = deepcopy(prior_calls or []) + deepcopy(getattr(client, "calls", []))
+        uses_spacy = any(rule.format == RuleFormat.SPACY for rule in artifact.rules)
+        pipeline = cast(Any, self.executor._nlp)
+        artifact.provenance.update(
             {
-                "rulechef_version": version("rulechef"),
                 "config": asdict(self.config),
-                "train_ids": [example.input.id for example in train_examples],
-                "train_annotation_ids": [example.gold.id for example in train_examples],
-                "train_text_sha256": [
-                    hashlib.sha256(example.input.text.encode()).hexdigest()
-                    for example in train_examples
-                ],
-                "dev_used": False,
-                "test_used_during_fit": False,
-                "selection": "upstream exact micro F1 on training data",
-                "synthesis_strategy": "bulk",
+                "dev_ids": [example.input.id for example in dev_examples],
+                "dev_used": dev is not None,
+                "selection": "exact micro F1 on dev"
+                if dev is not None
+                else "exact micro F1 on train",
                 "refinement_seconds": time.perf_counter() - started,
-                "span_conflicts": "native RuleChef: same start/end keeps one entity across labels",
-                "llm_fallback": False,
-                "model_calls": getattr(client, "calls", []),
-            },
+                "refinement_history": history,
+                "model_calls": new_calls,
+                "rule_formats": dict(Counter(rule.format.value for rule in artifact.rules)),
+                "spacy_pipeline": {
+                    "name": self.config.spacy_model,
+                    "version": pipeline.language.meta.get("version"),
+                    "language": pipeline.language.lang,
+                    "components": pipeline.language.pipe_names,
+                    "ner_enabled": False,
+                    "document_cache_size": 16,
+                }
+                if self.config.spacy_model
+                else None,
+                "inference_spacy_required": uses_spacy,
+            }
         )
+        if not uses_spacy:
+            artifact.spacy_model = None
         if scorer:
             artifact.provenance["training_metrics"] = asdict(
                 scorer(
@@ -346,6 +451,13 @@ class RuleChefMethod(Method[RuleChefArtifact]):
                     train_examples,
                 )
             )
+            if dev_examples:
+                artifact.provenance["dev_metrics"] = asdict(
+                    scorer(
+                        self.predict(artifact, [example.input for example in dev_examples]),
+                        dev_examples,
+                    )
+                )
         return artifact
 
     def dump(self, artifact: RuleChefArtifact, directory: Path) -> None:
@@ -353,10 +465,11 @@ class RuleChefMethod(Method[RuleChefArtifact]):
         (directory / "artifact.json").write_text(
             json.dumps(
                 {
-                    "format_version": 1,
+                    "format_version": 2,
                     "task_spec": asdict(artifact.task_spec),
                     "rules": [rule.to_dict() for rule in artifact.rules],
                     "provenance": artifact.provenance,
+                    "spacy_model": artifact.spacy_model,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -366,15 +479,26 @@ class RuleChefMethod(Method[RuleChefArtifact]):
 
     def load(self, directory: Path) -> RuleChefArtifact:
         state = json.loads((directory / "artifact.json").read_text())
-        if state["format_version"] != 1:
+        if state["format_version"] not in {1, 2}:
             raise ValueError("Unsupported RuleChef artifact version.")
         spec = state["task_spec"]
         spec["entity_labels"] = tuple(spec["entity_labels"])
         spec["relation_labels"] = tuple(spec["relation_labels"])
         rules = [Rule.from_dict(rule) for rule in state["rules"]]
-        if any(rule.format != RuleFormat.REGEX for rule in rules):
-            raise ValueError("This adapter supports regex artifacts only.")
-        return RuleChefArtifact(TaskSpec(**spec), rules, state["provenance"])
+        if any(rule.format not in {RuleFormat.REGEX, RuleFormat.SPACY} for rule in rules):
+            raise ValueError("This adapter supports regex and spaCy artifacts only.")
+        model = state.get("spacy_model")
+        if any(rule.format == RuleFormat.SPACY for rule in rules) and not model:
+            raise ValueError("spaCy artifacts must record their Spanish pipeline.")
+        self.executor = _executor(model)
+        expected = state["provenance"].get("spacy_pipeline")
+        if (
+            expected
+            and model
+            and cast(Any, self.executor._nlp).language.meta.get("version") != expected["version"]
+        ):
+            raise ValueError("Installed spaCy model version differs from the saved artifact.")
+        return RuleChefArtifact(TaskSpec(**spec), rules, state["provenance"], model)
 
     def predict(
         self,
@@ -414,5 +538,9 @@ class RuleChefMethod(Method[RuleChefArtifact]):
                         },
                     }
                 )
-            predictions.append(prediction_for(document, results, "rulechef-0.2.2-regex"))
+            model_version = (
+                "rulechef-0.2.2-spacy-es" if artifact.spacy_model else "rulechef-0.2.2-regex"
+            )
+            model_version = artifact.provenance.get("prediction_model_version", model_version)
+            predictions.append(prediction_for(document, results, model_version))
         return predictions
